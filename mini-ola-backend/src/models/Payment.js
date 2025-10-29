@@ -24,7 +24,7 @@ const paymentSchema = new mongoose.Schema({
   },
   method: {
     type: String,
-    enum: ['wallet'],
+    enum: ['wallet', 'upi', 'cash'],
     required: true,
     default: 'wallet'
   },
