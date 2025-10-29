@@ -47,7 +47,7 @@ Write-Host "  { `$set: { isKycVerified: true } }" -ForegroundColor Gray
 Write-Host ")" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Or use this MongoDB URI in Compass:" -ForegroundColor Yellow
-Write-Host "mongodb+srv://chetansoyal_db_user:LonKX5JKD4WexwaH@mini-ola-db.rxwdcwp.mongodb.net/" -ForegroundColor Gray
+Write-Host "<MONGODB_URI from .env file or environment variable>" -ForegroundColor Gray
 Write-Host ""
 
 # Step 3: Try to go online anyway (will fail if not KYC verified)
