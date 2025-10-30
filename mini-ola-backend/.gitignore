@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# env and local config
+.env
+.env.local
+*.local
+
+# logs
+logs/
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# build artifacts
+dist/
+build/
+coverage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# temp helper
+admin-verify-kyc.js

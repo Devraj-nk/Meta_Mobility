@@ -388,12 +388,31 @@ Authorization: Bearer <token>
 **Body:**
 ```json
 {
-  "rideId": "ride_id_here",
-  "method": "upi"
+  "rideId": "ride_id_here"
 }
 ```
 
-**Methods:** `cash`, `card`, `upi`, `wallet`
+**Note:** Payment is automatically processed via wallet deduction. User must have sufficient balance.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Payment processed successfully",
+  "data": {
+    "payment": {
+      "_id": "payment_id",
+      "ride": "ride_id",
+      "amount": 150,
+      "method": "wallet",
+      "status": "completed",
+      "transactionId": "TXN-INTERNAL-...",
+      "platformFee": 30,
+      "driverEarnings": 120
+    }
+  }
+}
+```
 
 ---
 
