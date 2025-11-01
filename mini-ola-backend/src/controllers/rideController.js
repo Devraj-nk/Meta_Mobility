@@ -132,6 +132,34 @@ const requestRide = asyncHandler(async (req, res) => {
     }
   }).limit(10).populate('user', 'name phone rating');
 
+  // Debug: Check total available drivers
+  const totalAvailableDrivers = await Driver.countDocuments({
+    isAvailable: true,
+    kycStatus: 'approved',
+    currentRide: null
+  });
+
+  console.log('🔍 Driver Search Debug:', {
+    pickupLocation: { lat: pickupLat, lng: pickupLng },
+    nearbyDriversFound: nearbyDrivers.length,
+    totalAvailableDrivers: totalAvailableDrivers,
+    searchRadius: '5km'
+  });
+
+  // Log each available driver's location
+  if (totalAvailableDrivers > 0) {
+    const allAvailableDrivers = await Driver.find({
+      isAvailable: true,
+      kycStatus: 'approved',
+      currentRide: null
+    }).populate('user', 'name');
+    
+    allAvailableDrivers.forEach(driver => {
+      console.log(`  📍 Driver ${driver.user?.name}:`, 
+        driver.currentLocation?.coordinates || 'No location set');
+    });
+  }
+
   if (nearbyDrivers.length === 0) {
     // Update ride status if no drivers available
     ride.status = 'cancelled';
@@ -140,7 +168,12 @@ const requestRide = asyncHandler(async (req, res) => {
     await ride.save();
 
     return res.status(404).json(
-      formatError('No drivers available nearby. Please try again later.', 404)
+      formatError(
+        `No drivers available nearby. Total available drivers in system: ${totalAvailableDrivers}. ` +
+        `Search location: ${pickupLat.toFixed(4)}, ${pickupLng.toFixed(4)}. ` +
+        `Please ensure drivers have their location enabled and are within 5km.`, 
+        404
+      )
     );
   }
 

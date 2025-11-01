@@ -416,6 +416,154 @@ const getStats = asyncHandler(async (req, res) => {
   );
 });
 
+/**
+ * Debug endpoint to check available drivers
+ * GET /api/drivers/debug/available
+ */
+const debugAvailableDrivers = asyncHandler(async (req, res) => {
+  // Get all drivers with their details
+  const allDrivers = await Driver.find()
+    .populate('user', 'name email phone role')
+    .populate('currentRide')
+    .select('isAvailable kycStatus currentLocation currentRide vehicleType vehicleNumber');
+
+  const availableDrivers = allDrivers.filter(d => 
+    d.isAvailable === true && 
+    d.kycStatus === 'approved' && 
+    d.currentRide === null
+  );
+
+  const response = {
+    totalDrivers: allDrivers.length,
+    availableDrivers: availableDrivers.length,
+    drivers: allDrivers.map(driver => ({
+      _id: driver._id,
+      userId: driver.user?._id,
+      name: driver.user?.name || 'Unknown',
+      email: driver.user?.email,
+      phone: driver.user?.phone,
+      isAvailable: driver.isAvailable,
+      kycStatus: driver.kycStatus,
+      currentRide: driver.currentRide ? 'Has active ride' : 'No active ride',
+      currentRideId: driver.currentRide?._id || null,
+      currentRideStatus: driver.currentRide?.status || null,
+      vehicleType: driver.vehicleType,
+      vehicleNumber: driver.vehicleNumber,
+      location: {
+        coordinates: driver.currentLocation?.coordinates || null,
+        address: driver.currentLocation?.address || 'Not set'
+      },
+      canAcceptRides: driver.isAvailable && driver.kycStatus === 'approved' && !driver.currentRide
+    }))
+  };
+
+  res.json(formatSuccess('Driver debug info', response));
+});
+
+/**
+ * Debug endpoint to reset driver status (clear stuck rides)
+ * POST /api/drivers/debug/reset/:driverId
+ */
+const debugResetDriver = asyncHandler(async (req, res) => {
+  const { driverId } = req.params;
+
+  const driver = await Driver.findById(driverId);
+  if (!driver) {
+    return res.status(404).json(formatError('Driver not found', 404));
+  }
+
+  // Clear current ride
+  const oldRideId = driver.currentRide;
+  driver.currentRide = null;
+  driver.isAvailable = true; // Also set as available
+  await driver.save();
+
+  res.json(
+    formatSuccess('Driver reset successfully', {
+      driverId: driver._id,
+      clearedRideId: oldRideId,
+      nowAvailable: true
+    })
+  );
+});
+
+/**
+ * Clear driver's own stuck ride (self-service)
+ * POST /api/drivers/clear-stuck-ride
+ */
+const clearStuckRide = asyncHandler(async (req, res) => {
+  const driver = await Driver.findOne({ user: req.userId });
+
+  if (!driver) {
+    return res.status(404).json(formatError('Driver profile not found', 404));
+  }
+
+  if (!driver.currentRide) {
+    return res.status(400).json(
+      formatError('No active ride to clear', 400)
+    );
+  }
+
+  // Get the ride details
+  const ride = await Ride.findById(driver.currentRide)
+    .populate('rider', 'name phone rating')
+    .populate('driver', 'name phone rating');
+
+  if (!ride) {
+    // Ride doesn't exist, just clear the reference
+    driver.currentRide = null;
+    driver.isAvailable = true;
+    await driver.save();
+    return res.json(
+      formatSuccess('Ride reference cleared (ride not found in database)', {})
+    );
+  }
+
+  // If ride is already completed or cancelled, just clear the driver's reference
+  if (ride.status === 'completed' || ride.status === 'cancelled') {
+    driver.currentRide = null;
+    driver.isAvailable = true;
+    await driver.save();
+
+    return res.json(
+      formatSuccess('Stuck ride cleared successfully', {
+        clearedRideId: driver.currentRide,
+        rideStatus: ride.status
+      })
+    );
+  }
+
+  // If ride is in active state (accepted, driver-arrived, in-progress), offer to complete it
+  if (['accepted', 'driver-arrived', 'in-progress'].includes(ride.status)) {
+    // Auto-complete the ride
+    await ride.completeRide(ride.fare?.estimatedFare || 0);
+
+    // Update driver stats
+    await driver.addEarnings(ride.fare.finalFare);
+    driver.currentRide = null;
+    driver.isAvailable = true;
+    await driver.save();
+
+    // Update rider stats
+    const riderUser = await User.findById(ride.rider._id);
+    if (riderUser) {
+      riderUser.ridesCompleted += 1;
+      await riderUser.save();
+    }
+
+    return res.json(
+      formatSuccess('Ride completed and cleared successfully', {
+        ride,
+        message: 'Ride has been marked as completed'
+      })
+    );
+  }
+
+  return res.status(400).json(
+    formatError(`Cannot clear ride with status: ${ride.status}`, 400)
+  );
+});
+
 module.exports = {
   toggleAvailability,
   updateLocation,
@@ -426,5 +574,8 @@ module.exports = {
   startRide,
   completeRide,
   getEarnings,
-  getStats
+  getStats,
+  debugAvailableDrivers,
+  debugResetDriver,
+  clearStuckRide
 };
