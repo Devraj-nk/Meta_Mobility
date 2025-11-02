@@ -16,7 +16,16 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const app = express();
 
 // Connect to database
-connectDB();
+connectDB().then(async () => {
+  // Ensure geospatial indexes are created
+  const Driver = require('./models/Driver');
+  try {
+    await Driver.collection.createIndex({ currentLocation: '2dsphere' });
+    console.log('✅ Geospatial index created for Driver.currentLocation');
+  } catch (error) {
+    console.error('⚠️  Error creating geospatial index:', error.message);
+  }
+});
 
 // Security middleware - CAB-SR-001: Enforce TLS/HTTPS and secure headers
 app.use(helmet());

@@ -6,7 +6,21 @@ const { validate, sanitizeInput } = require('../middleware/validator');
 
 const router = express.Router();
 
-// All routes require driver authentication
+/**
+ * @route   GET /api/drivers/debug/available
+ * @desc    Debug endpoint to check available drivers (no auth required)
+ * @access  Public
+ */
+router.get('/debug/available', driverController.debugAvailableDrivers);
+
+/**
+ * @route   POST /api/drivers/debug/reset/:driverId
+ * @desc    Debug endpoint to reset driver status (no auth required)
+ * @access  Public
+ */
+router.post('/debug/reset/:driverId', driverController.debugResetDriver);
+
+// All routes below require driver authentication
 router.use(authenticate);
 router.use(authorize('driver'));
 
@@ -44,6 +58,13 @@ router.put(
   validate,
   driverController.updateLocation
 );
+
+/**
+ * @route   POST /api/drivers/clear-stuck-ride
+ * @desc    Clear driver's stuck ride (self-service for drivers)
+ * @access  Private (Driver)
+ */
+router.post('/clear-stuck-ride', driverController.clearStuckRide);
 
 /**
  * @route   GET /api/drivers/rides/active
