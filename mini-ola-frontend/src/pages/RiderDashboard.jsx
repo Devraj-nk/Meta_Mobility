@@ -771,10 +771,18 @@ const RiderDashboard = () => {
                       Cancel Ride
                     </button>
                   )}
-                  {activeRide.status === 'completed' && (
+                  {activeRide.status === 'completed' && activeRide.paymentStatus !== 'completed' && (
                     <button className="btn-primary" onClick={() => handlePayNow(activeRide._id, activeRide.fare?.finalFare || activeRide.fare?.estimatedFare)}>
                       Pay Now
                     </button>
+                  )}
+                  {activeRide.status === 'completed' && activeRide.paymentStatus === 'completed' && (
+                    <div className="flex items-center gap-2 text-green-600 text-sm font-semibold">
+                      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      ✅ Payment Completed
+                    </div>
                   )}
                 </div>
               </div>
@@ -1032,13 +1040,23 @@ const RiderDashboard = () => {
                       </div>
                       <div className="flex justify-between items-center pt-2 border-t">
                         <span className="text-gray-600">{ride.rideType}</span>
-                        <span className="font-bold text-primary-600">₹{ride.fare?.estimatedFare || ride.fare || '—'}</span>
+                        <span className="font-bold text-primary-600">₹{ride.fare?.finalFare || ride.fare?.estimatedFare || ride.fare || '—'}</span>
                       </div>
-                      {ride.status === 'completed' && (
+                      {ride.status === 'completed' && ride.paymentStatus !== 'completed' && (
                         <div className="pt-3">
                           <button className="btn-primary" onClick={() => handlePayNow(ride._id, ride.fare?.finalFare || ride.fare?.estimatedFare || ride.fare)}>
                             Pay Now
                           </button>
+                        </div>
+                      )}
+                      {ride.status === 'completed' && ride.paymentStatus === 'completed' && (
+                        <div className="pt-3">
+                          <div className="flex items-center gap-2 text-green-600 text-sm font-semibold">
+                            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                            </svg>
+                            Payment Completed
+                          </div>
                         </div>
                       )}
                     </div>
