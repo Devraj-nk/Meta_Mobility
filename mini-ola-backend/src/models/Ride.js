@@ -187,7 +187,8 @@ rideSchema.methods.completeRide = function(finalFare) {
   this.status = 'completed';
   this.endTime = new Date();
   this.fare.finalFare = finalFare || this.fare.estimatedFare;
-  this.paymentStatus = 'completed';
+  // Keep paymentStatus as 'pending' until payment is actually processed
+  // Don't auto-set to 'completed' here
   
   // Calculate actual duration
   if (this.startTime) {

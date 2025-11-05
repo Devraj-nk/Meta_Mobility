@@ -116,23 +116,7 @@ const requestRide = asyncHandler(async (req, res) => {
   // Generate OTP
   await ride.generateOTP();
 
-  // Find nearby available drivers (within 5km radius) - CAB-F-003
-  const nearbyDrivers = await Driver.find({
-    isAvailable: true,
-    kycStatus: 'approved',
-    currentRide: null,
-    currentLocation: {
-      $near: {
-        $geometry: {
-          type: 'Point',
-          coordinates: [pickupLng, pickupLat]
-        },
-        $maxDistance: 5000 // 5km in meters
-      }
-    }
-  }).limit(10).populate('user', 'name phone rating');
-
-  // Debug: Check total available drivers
+  // Debug: Check total available drivers first
   const totalAvailableDrivers = await Driver.countDocuments({
     isAvailable: true,
     kycStatus: 'approved',
@@ -141,23 +125,77 @@ const requestRide = asyncHandler(async (req, res) => {
 
   console.log('🔍 Driver Search Debug:', {
     pickupLocation: { lat: pickupLat, lng: pickupLng },
-    nearbyDriversFound: nearbyDrivers.length,
     totalAvailableDrivers: totalAvailableDrivers,
     searchRadius: '5km'
   });
 
-  // Log each available driver's location
-  if (totalAvailableDrivers > 0) {
-    const allAvailableDrivers = await Driver.find({
+  // Get all available drivers to check their locations
+  const allAvailableDrivers = await Driver.find({
+    isAvailable: true,
+    kycStatus: 'approved',
+    currentRide: null
+  }).populate('user', 'name');
+  
+  console.log('📍 Available drivers locations:');
+  allAvailableDrivers.forEach(driver => {
+    const coords = driver.currentLocation?.coordinates;
+    console.log(`  - ${driver.user?.name}: [${coords?.[0] || 'none'}, ${coords?.[1] || 'none'}] ${driver.currentLocation?.address || ''}`);
+  });
+
+  // Find nearby available drivers (within 5km radius) - CAB-F-003
+  let nearbyDrivers = [];
+  
+  try {
+    nearbyDrivers = await Driver.find({
       isAvailable: true,
       kycStatus: 'approved',
-      currentRide: null
-    }).populate('user', 'name');
+      currentRide: null,
+      'currentLocation.coordinates': { $exists: true, $ne: null, $ne: [0, 0] },
+      currentLocation: {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates: [pickupLng, pickupLat]
+          },
+          $maxDistance: 5000 // 5km in meters
+        }
+      }
+    }).limit(10).populate('user', 'name phone rating');
+
+    console.log(`✅ Geospatial query found ${nearbyDrivers.length} drivers`);
+  } catch (error) {
+    console.error('❌ Geospatial query failed:', error.message);
+    console.log('🔄 Falling back to manual distance calculation...');
     
-    allAvailableDrivers.forEach(driver => {
-      console.log(`  📍 Driver ${driver.user?.name}:`, 
-        driver.currentLocation?.coordinates || 'No location set');
-    });
+    // Fallback: Calculate distances manually for drivers with valid locations
+    const calculateManualDistance = (lat1, lon1, lat2, lon2) => {
+      const R = 6371e3; // Earth radius in meters
+      const φ1 = lat1 * Math.PI / 180;
+      const φ2 = lat2 * Math.PI / 180;
+      const Δφ = (lat2 - lat1) * Math.PI / 180;
+      const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+      const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                Math.cos(φ1) * Math.cos(φ2) *
+                Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+      return R * c; // Distance in meters
+    };
+
+    nearbyDrivers = allAvailableDrivers.filter(driver => {
+      const coords = driver.currentLocation?.coordinates;
+      if (!coords || coords.length !== 2 || (coords[0] === 0 && coords[1] === 0)) {
+        console.log(`  ⚠️ Skipping ${driver.user?.name} - invalid location`);
+        return false;
+      }
+      
+      const distance = calculateManualDistance(pickupLat, pickupLng, coords[1], coords[0]);
+      console.log(`  � ${driver.user?.name} is ${(distance / 1000).toFixed(2)}km away`);
+      return distance <= 5000;
+    }).slice(0, 10);
+
+    console.log(`✅ Manual calculation found ${nearbyDrivers.length} drivers within 5km`);
   }
 
   if (nearbyDrivers.length === 0) {
@@ -167,13 +205,39 @@ const requestRide = asyncHandler(async (req, res) => {
     ride.cancelledBy = 'system';
     await ride.save();
 
+    // Create helpful error message
+    let errorMessage = `No drivers available nearby.\n\n`;
+    errorMessage += `📍 Your pickup location: ${pickupLat.toFixed(4)}, ${pickupLng.toFixed(4)}\n`;
+    errorMessage += `👥 Total drivers online: ${totalAvailableDrivers}\n\n`;
+    
+    if (totalAvailableDrivers > 0) {
+      errorMessage += `Possible reasons:\n`;
+      const driversWithoutLocation = allAvailableDrivers.filter(d => {
+        const coords = d.currentLocation?.coordinates;
+        return !coords || coords.length !== 2 || (coords[0] === 0 && coords[1] === 0);
+      });
+      
+      if (driversWithoutLocation.length > 0) {
+        errorMessage += `• ${driversWithoutLocation.length} driver(s) don't have their location enabled\n`;
+        errorMessage += `  Drivers: ${driversWithoutLocation.map(d => d.user?.name).join(', ')}\n`;
+      }
+      
+      const driversWithLocation = allAvailableDrivers.filter(d => {
+        const coords = d.currentLocation?.coordinates;
+        return coords && coords.length === 2 && !(coords[0] === 0 && coords[1] === 0);
+      });
+      
+      if (driversWithLocation.length > 0) {
+        errorMessage += `• ${driversWithLocation.length} driver(s) are more than 5km away from you\n`;
+      }
+    } else {
+      errorMessage += `• No drivers are currently online\n`;
+    }
+    
+    errorMessage += `\n💡 Solution: Drivers need to turn ON their location and go ONLINE`;
+
     return res.status(404).json(
-      formatError(
-        `No drivers available nearby. Total available drivers in system: ${totalAvailableDrivers}. ` +
-        `Search location: ${pickupLat.toFixed(4)}, ${pickupLng.toFixed(4)}. ` +
-        `Please ensure drivers have their location enabled and are within 5km.`, 
-        404
-      )
+      formatError(errorMessage, 404)
     );
   }
 

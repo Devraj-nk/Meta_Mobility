@@ -57,6 +57,11 @@ const processPayment = asyncHandler(async (req, res) => {
       
       try {
         await existingPayment.processPayment();
+        
+        // Update ride payment status
+        ride.paymentStatus = 'completed';
+        await ride.save();
+        
         return res.json(
           formatSuccess('Payment processed successfully', { payment: existingPayment })
         );

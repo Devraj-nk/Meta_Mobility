@@ -29,8 +29,12 @@ const PaymentConfirm = () => {
   const fetchRideDetails = async () => {
     try {
       const response = await api.rideDetails(rideId)
-      setRide(response.data.data)
+      console.log('Payment - Fetched ride details:', response.data)
+      const rideData = response.data.data?.ride || response.data.data
+      console.log('Payment - Ride data:', rideData)
+      setRide(rideData)
     } catch (err) {
+      console.error('Payment - Error fetching ride:', err)
       setError(err.response?.data?.message || 'Failed to load ride details')
     } finally {
       setLoading(false)
@@ -117,21 +121,49 @@ const PaymentConfirm = () => {
               {/* Ride Details */}
               <div className="bg-gray-50 rounded-lg p-4 mb-6 space-y-3">
                 <div>
-                  <p className="text-sm text-gray-600">From</p>
-                  <p className="font-semibold text-gray-900">{ride.pickupLocation?.address || ride.pickupAddress}</p>
+                  <p className="text-sm text-gray-600 mb-1 flex items-center">
+                    <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                    From
+                  </p>
+                  <p className="font-semibold text-gray-900 ml-4 text-sm">
+                    {ride.pickupLocation?.address || ride.pickupAddress || 
+                     (ride.pickupLocation?.coordinates && ride.pickupLocation.coordinates.length === 2 ? 
+                       `Lat: ${ride.pickupLocation.coordinates[1].toFixed(4)}, Lng: ${ride.pickupLocation.coordinates[0].toFixed(4)}` : 
+                       'Pickup location not available')}
+                  </p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">To</p>
-                  <p className="font-semibold text-gray-900">{ride.dropoffLocation?.address || ride.dropoffAddress}</p>
+                  <p className="text-sm text-gray-600 mb-1 flex items-center">
+                    <span className="inline-block w-2 h-2 bg-red-500 rounded-full mr-2"></span>
+                    To
+                  </p>
+                  <p className="font-semibold text-gray-900 ml-4 text-sm">
+                    {ride.dropoffLocation?.address || ride.dropoffAddress || 
+                     (ride.dropoffLocation?.coordinates && ride.dropoffLocation.coordinates.length === 2 ? 
+                       `Lat: ${ride.dropoffLocation.coordinates[1].toFixed(4)}, Lng: ${ride.dropoffLocation.coordinates[0].toFixed(4)}` : 
+                       'Dropoff location not available')}
+                  </p>
                 </div>
                 <div className="flex justify-between items-center pt-3 border-t">
                   <span className="text-gray-600">Ride Type</span>
-                  <span className="font-semibold capitalize">{ride.rideType}</span>
+                  <span className="font-semibold capitalize text-primary-600">
+                    {ride.rideType || 'N/A'}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-600">Distance</span>
-                  <span className="font-semibold">{ride.distance?.toFixed(1) || '—'} km</span>
+                  <span className="font-semibold text-primary-600">
+                    {ride.distance ? `${ride.distance.toFixed(1)} km` : 'N/A'}
+                  </span>
                 </div>
+                {ride.duration?.actual && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Duration</span>
+                    <span className="font-semibold text-primary-600">
+                      {ride.duration.actual} mins
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Fare Breakdown */}
