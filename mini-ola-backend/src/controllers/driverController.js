@@ -3,6 +3,46 @@ const Ride = require('../models/Ride');
 const User = require('../models/User');
 const { formatSuccess, formatError } = require('../utils/helpers');
 const { asyncHandler } = require('../middleware/errorHandler');
+/**
+ * Get nearby ride requests (polling for offers)
+ * GET /api/drivers/ride-requests
+ */
+const getNearbyRideRequests = asyncHandler(async (req, res) => {
+  const driver = await Driver.findOne({ user: req.userId });
+
+  if (!driver) {
+    return res.status(404).json(formatError('Driver profile not found', 404));
+  }
+
+  if (!driver.isAvailable) {
+    return res.json(formatSuccess('Driver offline - no requests', { requests: [] }));
+  }
+
+  const coords = driver.currentLocation?.coordinates;
+  if (!coords || coords.length !== 2 || (coords[0] === 0 && coords[1] === 0)) {
+    return res.json(formatSuccess('Driver location not set', { requests: [] }));
+  }
+
+  // Find requested rides within 5km of driver location
+  // Optionally match by vehicle type (simple mapping: rideType === vehicleType)
+  const filter = {
+    status: 'requested',
+    rideType: driver.vehicleType,
+    pickupLocation: {
+      $near: {
+        $geometry: { type: 'Point', coordinates: coords },
+        $maxDistance: 5000
+      }
+    }
+  };
+
+  const requests = await Ride.find(filter)
+    .sort({ createdAt: -1 })
+    .limit(10)
+    .populate('rider', 'name phone rating');
+
+  return res.json(formatSuccess('Nearby ride requests', { requests }));
+});
 
 /**
  * Driver Controller
@@ -127,24 +167,18 @@ const acceptRide = asyncHandler(async (req, res) => {
     );
   }
 
-  const ride = await Ride.findById(id);
+  // Atomically set driver if ride is still requested (race-safe)
+  const ride = await Ride.findOneAndUpdate(
+    { _id: id, status: 'requested', driver: null },
+    { $set: { driver: req.userId, status: 'accepted' } },
+    { new: true }
+  );
 
   if (!ride) {
-    return res.status(404).json(
-      formatError('Ride not found', 404)
+    return res.status(409).json(
+      formatError('Ride already accepted or not available', 409)
     );
   }
-
-  if (ride.status !== 'requested') {
-    return res.status(400).json(
-      formatError('Ride is not available for acceptance', 400)
-    );
-  }
-
-  // Accept ride
-  ride.driver = req.userId;
-  ride.status = 'accepted';
-  await ride.save();
 
   // Update driver
   driver.currentRide = ride._id;
@@ -577,5 +611,6 @@ module.exports = {
   getStats,
   debugAvailableDrivers,
   debugResetDriver,
-  clearStuckRide
+  clearStuckRide,
+  getNearbyRideRequests
 };
