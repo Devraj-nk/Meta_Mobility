@@ -33,6 +33,8 @@ export const api = {
   login: (payload) => client.post('/auth/login', payload),
   register: (payload) => client.post('/auth/register', payload),
   profile: () => client.get('/auth/profile'),
+  updateProfile: (payload) => client.put('/auth/profile', payload),
+  deleteAccount: () => client.delete('/auth/account'),
 
   // Rider
   fareEstimate: (payload) => client.post('/rides/estimate', payload),
@@ -48,6 +50,7 @@ export const api = {
   updateLocation: (payload) => client.put('/drivers/location', payload),
   clearStuckRide: () => client.post('/drivers/clear-stuck-ride'),
   driverActiveRide: () => client.get('/drivers/rides/active'),
+  driverRideRequests: () => client.get('/drivers/ride-requests'),
   driverAccept: (id) => client.put(`/drivers/rides/${id}/accept`),
   driverReject: (id, payload) => client.put(`/drivers/rides/${id}/reject`, payload),
   driverArrive: (id) => client.put(`/drivers/rides/${id}/arrive`),
@@ -58,6 +61,7 @@ export const api = {
 
   // Payments
   processPayment: (payload) => client.post('/payments/process', payload),
+  walletTopup: (payload) => client.post('/payments/wallet/topup', payload),
   paymentReceipt: (rideId) => client.get(`/payments/${rideId}`),
   paymentHistory: (params) => client.get('/payments/history', { params }),
   refundPayment: (rideId, payload) => client.post(`/payments/${rideId}/refund`, payload),
