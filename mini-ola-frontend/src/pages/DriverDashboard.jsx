@@ -447,12 +447,21 @@ const DriverDashboard = () => {
                           <button
                             onClick={async () => {
                               try {
-                                const resp = await api.driverAccept(r._id)
-                                alert('✅ Ride accepted!')
+                                const otp = prompt('Enter rider OTP to accept this ride:')
+                                if (!otp) return
+                                const resp = await api.driverAccept(r._id, { otp })
+                                alert('✅ Ride accepted after OTP verification!')
                                 // Refresh profile to reflect currentRide
                                 fetchDriverProfile()
                               } catch (err) {
-                                alert(err.response?.data?.message || err.message || 'Failed to accept')
+                                const status = err.response?.status
+                                let msg = err.response?.data?.message
+                                if (!msg) {
+                                  if (status === 400) msg = 'Invalid OTP'
+                                  else if (status === 409) msg = 'Ride already accepted'
+                                  else msg = err.message || 'Failed to accept ride'
+                                }
+                                alert(msg)
                                 // Refresh offers
                                 try { const rr = await api.driverRideRequests(); setRideOffers(rr.data?.data?.requests || []) } catch {}
                               }
