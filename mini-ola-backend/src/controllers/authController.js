@@ -78,7 +78,8 @@ const register = asyncHandler(async (req, res) => {
         name: user.name,
         email: user.email,
         phone: user.phone,
-        role: user.role
+        role: user.role,
+        walletBalance: user.walletBalance
       },
       token
     })
@@ -137,6 +138,7 @@ const login = asyncHandler(async (req, res) => {
         phone: user.phone,
         role: user.role,
         rating: user.rating,
+        walletBalance: user.walletBalance,
         ridesCompleted: user.ridesCompleted,
         driverProfile: driverProfile
       },
@@ -174,6 +176,7 @@ const getProfile = asyncHandler(async (req, res) => {
         rating: user.rating,
         totalRatings: user.totalRatings,
         ridesCompleted: user.ridesCompleted,
+        walletBalance: user.walletBalance,
         isVerified: user.isVerified,
         profilePicture: user.profilePicture,
         driverProfile: driverProfile
