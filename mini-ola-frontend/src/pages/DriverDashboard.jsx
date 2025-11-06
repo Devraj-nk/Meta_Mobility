@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
@@ -20,6 +20,8 @@ const DriverDashboard = () => {
     vehicleModel: '',
     vehicleColor: ''
   })
+  const [rideOffers, setRideOffers] = useState([])
+  const pollingRef = useRef(null)
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -33,6 +35,34 @@ const DriverDashboard = () => {
     fetchDriverProfile()
     getCurrentLocationOnLoad()
   }, [isAuthenticated, user, navigate])
+
+  // Poll for nearby ride requests when online and free
+  useEffect(() => {
+    const shouldPoll = !!driverProfile?.isAvailable && !driverProfile?.currentRide
+    if (!shouldPoll) {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current)
+        pollingRef.current = null
+      }
+      return
+    }
+
+    const fetchOffers = async () => {
+      try {
+        const res = await api.driverRideRequests()
+        setRideOffers(res.data?.data?.requests || [])
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // Initial + interval
+    fetchOffers()
+    pollingRef.current = setInterval(fetchOffers, 5000)
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current)
+    }
+  }, [driverProfile?.isAvailable, driverProfile?.currentRide])
 
   const getCurrentLocationOnLoad = () => {
     if ('geolocation' in navigator) {
@@ -384,6 +414,64 @@ const DriverDashboard = () => {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Incoming Ride Offers */}
+            {driverProfile?.isAvailable && !driverProfile?.currentRide && (
+              <div className="mt-4">
+                <h3 className="text-lg font-bold text-gray-900 mb-2">Incoming Ride Requests</h3>
+                {rideOffers.length === 0 ? (
+                  <div className="text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded p-3">
+                    No requests nearby yet. Waiting for offers...
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {rideOffers.map((r) => (
+                      <div key={r._id} className="border rounded-lg p-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold capitalize">{r.rideType}</span>
+                          <span className="text-xs text-gray-500">{new Date(r.createdAt).toLocaleTimeString()}</span>
+                        </div>
+                        <div className="mt-2 text-sm text-gray-700">
+                          <div className="flex items-start gap-2">
+                            <MapPin className="h-4 w-4 text-green-600 mt-0.5" />
+                            <span>{r.pickupLocation?.address}</span>
+                          </div>
+                          <div className="flex items-start gap-2 mt-1">
+                            <Navigation className="h-4 w-4 text-red-600 mt-0.5" />
+                            <span>{r.dropoffLocation?.address}</span>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            onClick={async () => {
+                              try {
+                                const resp = await api.driverAccept(r._id)
+                                alert('✅ Ride accepted!')
+                                // Refresh profile to reflect currentRide
+                                fetchDriverProfile()
+                              } catch (err) {
+                                alert(err.response?.data?.message || err.message || 'Failed to accept')
+                                // Refresh offers
+                                try { const rr = await api.driverRideRequests(); setRideOffers(rr.data?.data?.requests || []) } catch {}
+                              }
+                            }}
+                            className="btn-primary text-sm"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={() => setRideOffers(rideOffers.filter(o => o._id !== r._id))}
+                            className="btn-secondary text-sm"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
