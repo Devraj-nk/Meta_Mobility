@@ -23,6 +23,8 @@ const RiderDashboard = () => {
   const [showDebugInfo, setShowDebugInfo] = useState(false)
   const [debugInfo, setDebugInfo] = useState(null)
   const [locationInitialized, setLocationInitialized] = useState(false)
+  const [typeEstimates, setTypeEstimates] = useState({})
+  const [estimatingTypes, setEstimatingTypes] = useState(false)
   
   const [rideForm, setRideForm] = useState({
     pickupLat: 0,
@@ -73,6 +75,47 @@ const RiderDashboard = () => {
       setSearchingDriver(false)
     }
   }, [activeRide?.status])
+
+  // Auto-estimate fares for all ride types when both locations are set
+  useEffect(() => {
+    const hasPickup = rideForm.pickupLat && rideForm.pickupLng
+    const hasDrop = rideForm.dropoffLat && rideForm.dropoffLng
+    if (!hasPickup || !hasDrop) {
+      setTypeEstimates({})
+      return
+    }
+
+    // Debounce rapid changes
+    const t = setTimeout(async () => {
+      try {
+        setEstimatingTypes(true)
+        const rideTypes = ['bike', 'mini', 'sedan', 'suv']
+        const results = {}
+        await Promise.all(
+          rideTypes.map(async (rt) => {
+            try {
+              const res = await api.fareEstimate({
+                pickupLat: rideForm.pickupLat,
+                pickupLng: rideForm.pickupLng,
+                dropoffLat: rideForm.dropoffLat,
+                dropoffLng: rideForm.dropoffLng,
+                rideType: rt,
+                isGroupRide: false
+              })
+              results[rt] = res.data?.data?.estimatedFare
+            } catch (e) {
+              // ignore individual failures
+            }
+          })
+        )
+        setTypeEstimates(results)
+      } finally {
+        setEstimatingTypes(false)
+      }
+    }, 500)
+
+    return () => clearTimeout(t)
+  }, [rideForm.pickupLat, rideForm.pickupLng, rideForm.dropoffLat, rideForm.dropoffLng])
 
   const getCurrentLocationOnLoad = () => {
     console.log('🔍 Requesting location...')
@@ -947,17 +990,19 @@ const RiderDashboard = () => {
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Ride Type
+                    Ride Type {estimatingTypes && (
+                      <span className="ml-2 text-xs text-blue-600">(updating…)</span>
+                    )}
                   </label>
                   <select
                     value={rideForm.rideType}
                     onChange={(e) => setRideForm({ ...rideForm, rideType: e.target.value })}
                     className="input-field"
                   >
-                    <option value="bike">Bike (₹35 base)</option>
-                    <option value="mini">Mini (₹55 base)</option>
-                    <option value="sedan">Sedan (₹90 base)</option>
-                    <option value="suv">SUV (₹130 base)</option>
+                    <option value="bike">{`Bike (${typeEstimates.bike ? `₹${typeEstimates.bike} est` : '₹35 base'})`}</option>
+                    <option value="mini">{`Mini (${typeEstimates.mini ? `₹${typeEstimates.mini} est` : '₹55 base'})`}</option>
+                    <option value="sedan">{`Sedan (${typeEstimates.sedan ? `₹${typeEstimates.sedan} est` : '₹90 base'})`}</option>
+                    <option value="suv">{`SUV (${typeEstimates.suv ? `₹${typeEstimates.suv} est` : '₹130 base'})`}</option>
                   </select>
                 </div>
               </div>
@@ -1155,14 +1200,14 @@ const RiderDashboard = () => {
                 <User className="h-5 w-5 text-gray-400 mr-3" />
                 <div className="flex-1">
                   <div className="text-sm text-gray-600">Name</div>
-                  <div className="font-semibold">{user?.name || 'Not set'}</div>
+                  <div className="font-semibold text-gray-900">{user?.name || 'Not set'}</div>
                 </div>
               </div>
               <div className="flex items-center">
                 <Phone className="h-5 w-5 text-gray-400 mr-3" />
                 <div className="flex-1">
                   <div className="text-sm text-gray-600">Phone</div>
-                  <div className="font-semibold">{user?.phone || user?.email || 'Not set'}</div>
+                  <div className="font-semibold text-gray-900">{user?.phone || user?.email || 'Not set'}</div>
                 </div>
               </div>
               <div className="flex items-center">
