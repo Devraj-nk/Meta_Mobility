@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api/client'
-import { DollarSign, CheckCircle, XCircle, Loader, Wallet } from 'lucide-react'
+import { DollarSign, CheckCircle, XCircle, Loader, Wallet, QrCode, Banknote } from 'lucide-react'
 
 const PaymentConfirm = () => {
   const [searchParams] = useSearchParams()
@@ -17,6 +17,7 @@ const PaymentConfirm = () => {
   const [paying, setPaying] = useState(false)
   const [paymentStatus, setPaymentStatus] = useState(null) // 'success' | 'error'
   const [error, setError] = useState('')
+  const [method, setMethod] = useState('wallet') // wallet | upi | cash
 
   useEffect(() => {
     if (!rideId) {
@@ -46,7 +47,7 @@ const PaymentConfirm = () => {
     setError('')
     
     try {
-      await api.processPayment({ rideId })
+      await api.processPayment({ rideId, method })
       setPaymentStatus('success')
       
       // Redirect to dashboard after 2 seconds
@@ -195,13 +196,41 @@ const PaymentConfirm = () => {
                 </div>
               </div>
 
-              {/* Wallet Balance */}
-              <div className="bg-blue-50 rounded-lg p-4 mb-6 flex items-center justify-between">
-                <div className="flex items-center">
-                  <Wallet className="h-5 w-5 text-blue-600 mr-2" />
-                  <span className="text-gray-700">Wallet Balance</span>
+              {/* Payment Method Selection */}
+              <div className="mb-6">
+                <h3 className="font-bold text-gray-900 mb-2">Choose Payment Method</h3>
+                <div className="grid grid-cols-1 gap-2">
+                  <label className={`border rounded-lg p-3 flex items-center justify-between cursor-pointer ${method==='wallet'?'border-primary-300 bg-primary-50':'border-gray-200'}`}>
+                    <div className="flex items-center gap-2">
+                      <Wallet className="h-5 w-5 text-primary-600" />
+                      <div>
+                        <div className="font-semibold">Wallet</div>
+                        <div className="text-xs text-gray-500">Balance: ₹{user?.walletBalance?.toFixed(2) || '0.00'}</div>
+                      </div>
+                    </div>
+                    <input type="radio" name="pm" value="wallet" checked={method==='wallet'} onChange={()=>setMethod('wallet')} />
+                  </label>
+                  <label className={`border rounded-lg p-3 flex items-center justify-between cursor-pointer ${method==='upi'?'border-primary-300 bg-primary-50':'border-gray-200'}`}>
+                    <div className="flex items-center gap-2">
+                      <QrCode className="h-5 w-5 text-green-600" />
+                      <div>
+                        <div className="font-semibold">UPI</div>
+                        <div className="text-xs text-gray-500">Pay via UPI app (simulated)</div>
+                      </div>
+                    </div>
+                    <input type="radio" name="pm" value="upi" checked={method==='upi'} onChange={()=>setMethod('upi')} />
+                  </label>
+                  <label className={`border rounded-lg p-3 flex items-center justify-between cursor-pointer ${method==='cash'?'border-primary-300 bg-primary-50':'border-gray-200'}`}>
+                    <div className="flex items-center gap-2">
+                      <Banknote className="h-5 w-5 text-amber-600" />
+                      <div>
+                        <div className="font-semibold">Cash</div>
+                        <div className="text-xs text-gray-500">Pay cash to driver (simulated)</div>
+                      </div>
+                    </div>
+                    <input type="radio" name="pm" value="cash" checked={method==='cash'} onChange={()=>setMethod('cash')} />
+                  </label>
                 </div>
-                <span className="font-bold text-blue-600">₹{user?.walletBalance?.toFixed(2) || '0.00'}</span>
               </div>
 
               {error && (
@@ -222,7 +251,7 @@ const PaymentConfirm = () => {
                 <button 
                   onClick={handlePayment} 
                   className="btn-primary flex-1 disabled:opacity-50"
-                  disabled={paying || (user?.walletBalance < fareAmount)}
+                  disabled={paying || (method==='wallet' && user?.walletBalance < fareAmount)}
                 >
                   {paying ? (
                     <>
@@ -232,15 +261,14 @@ const PaymentConfirm = () => {
                   ) : (
                     <>
                       <DollarSign className="inline h-4 w-4 mr-2" />
-                      Pay ₹{fareAmount}
+                      {method==='cash' ? 'Mark Paid (Cash)' : method==='upi' ? 'Pay via UPI' : `Pay ₹${fareAmount}`}
                     </>
                   )}
                 </button>
               </div>
-
-              {user?.walletBalance < fareAmount && (
+              {method==='wallet' && user?.walletBalance < fareAmount && (
                 <p className="text-sm text-red-600 text-center mt-4">
-                  Insufficient wallet balance. Please add funds to your wallet.
+                  Insufficient wallet balance. Switch to UPI/Cash or add funds to your wallet.
                 </p>
               )}
             </>
