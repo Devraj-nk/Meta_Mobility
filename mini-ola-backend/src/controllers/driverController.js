@@ -147,11 +147,12 @@ const getActiveRide = asyncHandler(async (req, res) => {
 });
 
 /**
- * Accept ride request
+ * Accept ride request (requires OTP from rider)
  * PUT /api/drivers/rides/:id/accept
  */
 const acceptRide = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const { otp } = req.body;
 
   const driver = await Driver.findOne({ user: req.userId });
 
@@ -167,16 +168,43 @@ const acceptRide = asyncHandler(async (req, res) => {
     );
   }
 
-  // Atomically set driver if ride is still requested (race-safe)
+  if (!otp) {
+    return res.status(400).json(
+      formatError('OTP is required to accept the ride', 400)
+    );
+  }
+
+  // First check ride state to provide precise error messages
+  const rideDoc = await Ride.findById(id).select('status driver otp');
+  if (!rideDoc) {
+    return res.status(404).json(formatError('Ride not found', 404));
+  }
+
+  // If already accepted/assigned by someone else
+  if (rideDoc.status !== 'requested' || rideDoc.driver) {
+    return res.status(409).json(
+      formatError('Ride already accepted', 409)
+    );
+  }
+
+  // OTP mismatch
+  if (String(otp) !== String(rideDoc.otp)) {
+    return res.status(400).json(
+      formatError('Invalid OTP', 400)
+    );
+  }
+
+  // Atomically assign the ride ensuring it's still unassigned (race-safe)
   const ride = await Ride.findOneAndUpdate(
     { _id: id, status: 'requested', driver: null },
-    { $set: { driver: req.userId, status: 'accepted' } },
+    { $set: { driver: req.userId, status: 'accepted', otpVerified: true } },
     { new: true }
   );
 
   if (!ride) {
+    // Another driver accepted between the checks and this update
     return res.status(409).json(
-      formatError('Ride already accepted or not available', 409)
+      formatError('Ride already accepted', 409)
     );
   }
 
@@ -288,11 +316,15 @@ const startRide = asyncHandler(async (req, res) => {
     );
   }
 
-  // Verify OTP
-  if (!ride.verifyOTP(otp)) {
-    return res.status(400).json(
-      formatError('Invalid OTP', 400)
-    );
+  // Verify OTP unless already verified at accept
+  if (!ride.otpVerified) {
+    if (!ride.verifyOTP(otp)) {
+      return res.status(400).json(
+        formatError('Invalid OTP', 400)
+      );
+    }
+    ride.otpVerified = true;
+    await ride.save();
   }
 
   // Start ride
