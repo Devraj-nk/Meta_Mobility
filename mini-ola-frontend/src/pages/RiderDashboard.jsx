@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import { MapPin, Navigation, DollarSign, Clock, Star, Car as CarIcon, User, Phone, Wallet, Locate } from 'lucide-react'
+import { MapPin, Navigation, DollarSign, Clock, Car as CarIcon, User, Phone, Wallet, Locate } from 'lucide-react'
 
 const RiderDashboard = () => {
   const { user, isAuthenticated } = useAuth()
@@ -1215,25 +1215,6 @@ const RiderDashboard = () => {
                 <div className="flex-1">
                   <div className="text-sm text-gray-600">Wallet Balance</div>
                   <div className="font-semibold text-green-600">₹{(user?.walletBalance || 0).toFixed(2)}</div>
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600 mb-2">Rating</div>
-                <div className="flex items-center gap-1">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star
-                      key={star}
-                      className={`h-5 w-5 cursor-pointer transition-colors ${
-                        star <= Math.round(user?.rating || 5)
-                          ? 'text-yellow-400 fill-yellow-400'
-                          : 'text-gray-300'
-                      }`}
-                      onClick={() => console.log(`Clicked star ${star}`)}
-                    />
-                  ))}
-                  <span className="ml-2 text-sm font-semibold text-gray-700">
-                    {user?.rating?.toFixed(1) || '5.0'}
-                  </span>
                 </div>
               </div>
             </div>
