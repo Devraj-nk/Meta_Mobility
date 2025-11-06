@@ -12,6 +12,7 @@ const RiderDashboard = () => {
   const [bookingRide, setBookingRide] = useState(false)
   const [fareEstimate, setFareEstimate] = useState(null)
   const [activeRide, setActiveRide] = useState(null)
+  const [searchingDriver, setSearchingDriver] = useState(false)
   const [currentLocation, setCurrentLocation] = useState(null)
   const [showLocationMap, setShowLocationMap] = useState(false)
   const [locationLoading, setLocationLoading] = useState(true)
@@ -48,7 +49,7 @@ const RiderDashboard = () => {
     getCurrentLocationOnLoad()
   }, [isAuthenticated, user, navigate])
 
-  // Auto-refresh active ride every 10 seconds if there's an active ride
+  // Auto-refresh active ride every 10 seconds normally
   useEffect(() => {
     if (activeRide && ['requested', 'accepted', 'driver-arrived', 'in-progress'].includes(activeRide.status)) {
       const interval = setInterval(() => {
@@ -59,6 +60,19 @@ const RiderDashboard = () => {
       return () => clearInterval(interval)
     }
   }, [activeRide])
+
+  // When waiting for driver assignment, poll faster (3s)
+  useEffect(() => {
+    if (activeRide?.status === 'requested') {
+      setSearchingDriver(true)
+      const interval = setInterval(() => {
+        fetchActiveRide()
+      }, 3000)
+      return () => clearInterval(interval)
+    } else {
+      setSearchingDriver(false)
+    }
+  }, [activeRide?.status])
 
   const getCurrentLocationOnLoad = () => {
     console.log('🔍 Requesting location...')
@@ -296,10 +310,8 @@ const RiderDashboard = () => {
     setBookingRide(true)
     
     try {
-      const response = await api.requestRide(rideForm)
-      alert('✅ Ride requested successfully! Driver has been assigned.\n\n' + 
-            `📍 Pickup: ${rideForm.pickupLat.toFixed(4)}, ${rideForm.pickupLng.toFixed(4)}\n` +
-            `🚗 Driver: ${response.data?.data?.ride?.driver?.name || 'Assigned'}`)
+  const response = await api.requestRide(rideForm)
+  alert('✅ Ride requested! Waiting for a driver to accept...')
       
       // Keep pickup location but clear addresses and reset dropoff
       const currentPickupLat = rideForm.pickupLat
@@ -312,8 +324,9 @@ const RiderDashboard = () => {
         dropoffAddress: ''
       })
       setFareEstimate(null)
-      fetchRideHistory()
-      fetchActiveRide()
+  fetchRideHistory()
+  fetchActiveRide()
+  setSearchingDriver(true)
     } catch (error) {
       console.error('Failed to book ride:', error)
       const errorMsg = error.response?.data?.message || 'Failed to book ride'
