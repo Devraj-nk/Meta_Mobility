@@ -392,7 +392,18 @@ Authorization: Bearer <token>
 }
 ```
 
-**Note:** Payment is automatically processed via wallet deduction. User must have sufficient balance.
+Body (choose method):
+```json
+{
+  "rideId": "ride_id",
+  "method": "wallet" // or "upi" or "cash"
+}
+```
+
+Notes:
+- `wallet`: deducts from rider wallet and credits driver wallet (simulated)
+- `upi`: marks paid, generates a transactionId, no wallet movement (simulated UPI)
+- `cash`: marks paid; rider pays driver in cash (no wallet movement)
 
 **Response:**
 ```json
@@ -445,7 +456,22 @@ Authorization: Bearer <token>
 
 ---
 
-### 4. Refund Payment
+### 4. Wallet Top-up
+**POST** `/payments/wallet/topup`
+
+Body:
+```json
+{
+  "amount": 200,
+  "method": "upi" // or "cash" (simulated)
+}
+```
+
+Response includes updated wallet balance.
+
+---
+
+### 5. Refund Payment
 **POST** `/payments/:rideId/refund`
 
 **Headers:** `Authorization: Bearer <token>`
