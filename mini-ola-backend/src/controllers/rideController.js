@@ -240,24 +240,15 @@ const requestRide = asyncHandler(async (req, res) => {
       formatError(errorMessage, 404)
     );
   }
-
-  // Auto-assign to nearest driver
-  const assignedDriver = nearbyDrivers[0];
-  ride.driver = assignedDriver._id;
-  ride.status = 'accepted';
+  // Do NOT auto-assign. Keep as 'requested' and let drivers accept.
+  // Optionally, we could notify nearby drivers via realtime or polling.
   await ride.save();
 
-  // Update driver status
-  assignedDriver.currentRide = ride._id;
-  assignedDriver.isAvailable = false;
-  await assignedDriver.save();
-
-  // Populate rider and driver details
-  await ride.populate({ path: 'rider', select: 'name phone rating profilePicture', model: 'User' });
-  await ride.populate({ path: 'driver', select: 'name phone rating profilePicture', model: 'Driver' });
+  // Populate rider details (driver will be null until accepted)
+  await ride.populate('rider', 'name phone rating profilePicture');
 
   res.status(201).json(
-    formatSuccess('Ride requested and driver assigned successfully', {
+    formatSuccess('Ride requested. Waiting for a driver to accept the offer.', {
       ride: ride,
       otp: ride.otp,
       nearbyDriversCount: nearbyDrivers.length

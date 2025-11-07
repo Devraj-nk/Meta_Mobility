@@ -50,7 +50,8 @@ const register = asyncHandler(async (req, res) => {
         name: user.name,
         email: user.email,
         phone: user.phone,
-        role: user.role
+        role: user.role,
+        walletBalance: user.walletBalance
       },
       token
     })
@@ -113,6 +114,7 @@ const login = asyncHandler(async (req, res) => {
         phone: user.phone,
         role: user.role,
         rating: user.rating,
+        walletBalance: user.walletBalance,
         ridesCompleted: user.ridesCompleted,
         driverProfile: driverProfile
       },
@@ -167,6 +169,7 @@ const getProfile = asyncHandler(async (req, res) => {
         rating: account.rating,
         totalRatings: account.totalRatings,
         ridesCompleted: account.ridesCompleted,
+        walletBalance: account.walletBalance,
         isVerified: account.isVerified,
         profilePicture: account.profilePicture,
         driverProfile: driverProfile
@@ -279,6 +282,18 @@ const updateProfile = asyncHandler(async (req, res) => {
   }
 
   if (name) account.name = name;
+  if (phone) account.phone = phone;
+
+  // Allow updating email with uniqueness check
+  if (email && email !== account.email) {
+    const exists = await User.findOne({ email });
+    if (exists) {
+      return res.status(400).json(
+        formatError('Email already in use', 400)
+      );
+    }
+    account.email = email;
+  }
   if (profilePicture) account.profilePicture = profilePicture;
 
   await account.save();
@@ -294,6 +309,31 @@ const updateProfile = asyncHandler(async (req, res) => {
         profilePicture: account.profilePicture
       }
     })
+  );
+});
+
+/**
+ * Delete (deactivate) account for current user
+ * DELETE /api/auth/account
+ */
+const deleteAccount = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.userId);
+
+  if (!user) {
+    return res.status(404).json(
+      formatError('User not found', 404)
+    );
+  }
+
+  // Soft-delete: deactivate and mask unique fields to free them up
+  user.isActive = false;
+  const uniqueSuffix = `${Date.now()}${user._id.toString().slice(-6)}`;
+  user.email = `deleted+${uniqueSuffix}@example.invalid`;
+  user.phone = `9${uniqueSuffix}`.slice(0, 10); // ensure 10 digits
+  await user.save();
+
+  res.json(
+    formatSuccess('Account deleted successfully')
   );
 });
 

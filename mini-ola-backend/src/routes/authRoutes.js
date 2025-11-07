@@ -118,6 +118,10 @@ router.put(
       .optional()
       .trim()
       .isLength({ min: 2, max: 100 }).withMessage('Name must be 2-100 characters'),
+    body('email')
+      .optional()
+      .isEmail().withMessage('Invalid email format')
+      .normalizeEmail(),
     body('phone')
       .optional()
       .trim()
@@ -153,11 +157,10 @@ router.put(
 
 /**
  * @route   DELETE /api/auth/account
- * @desc    Delete current account
+ * @desc    Delete current user account (soft-delete)
  * @access  Private
  */
 router.delete('/account', authenticate, authController.deleteAccount);
-
 /**
  * @route   POST /api/auth/forgot-password
  * @desc    Reset password using username and email
@@ -186,5 +189,4 @@ router.post(
   validate,
   authController.forgotPassword
 );
-
 module.exports = router;

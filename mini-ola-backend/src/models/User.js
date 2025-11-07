@@ -126,6 +126,7 @@ userSchema.methods.toJSON = function() {
   return obj;
 };
 
-const User = mongoose.model('User', userSchema);
+// Store rider accounts in 'riders' collection (separate from 'drivers')
+const User = mongoose.model('User', userSchema, 'riders');
 
 module.exports = User;

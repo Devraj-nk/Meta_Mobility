@@ -33,9 +33,11 @@ export const AuthProvider = ({ children }) => {
       const userData = response.data.data?.user || response.data.data || response.data.user || response.data
       console.log('Setting user:', userData)
       setUser(userData)
+      return userData
     } catch (error) {
       console.error('Failed to fetch profile:', error)
       logout()
+      return null
     } finally {
       setLoading(false)
     }
@@ -111,6 +113,11 @@ export const AuthProvider = ({ children }) => {
     delete client.defaults.headers.common['Authorization']
   }
 
+  const refreshProfile = async () => {
+    // Force fetch user again and update state
+    return await fetchProfile()
+  }
+
   const value = {
     user,
     token,
@@ -118,6 +125,7 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
+    refreshProfile,
     isAuthenticated: !!token,
   }
 

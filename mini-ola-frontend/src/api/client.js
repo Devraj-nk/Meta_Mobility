@@ -54,7 +54,8 @@ export const api = {
   updateLocation: (payload) => client.put('/drivers/location', payload),
   clearStuckRide: () => client.post('/drivers/clear-stuck-ride'),
   driverActiveRide: () => client.get('/drivers/rides/active'),
-  driverAccept: (id) => client.put(`/drivers/rides/${id}/accept`),
+  driverRideRequests: () => client.get('/drivers/ride-requests'),
+  driverAccept: (id, payload) => client.put(`/drivers/rides/${id}/accept`, payload),
   driverReject: (id, payload) => client.put(`/drivers/rides/${id}/reject`, payload),
   driverArrive: (id) => client.put(`/drivers/rides/${id}/arrive`),
   driverStart: (id, payload) => client.put(`/drivers/rides/${id}/start`, payload),
@@ -68,6 +69,7 @@ export const api = {
 
   // Payments
   processPayment: (payload) => client.post('/payments/process', payload),
+  walletTopup: (payload) => client.post('/payments/wallet/topup', payload),
   paymentReceipt: (rideId) => client.get(`/payments/${rideId}`),
   paymentHistory: (params) => client.get('/payments/history', { params }),
   refundPayment: (rideId, payload) => client.post(`/payments/${rideId}/refund`, payload),

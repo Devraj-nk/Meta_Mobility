@@ -43,6 +43,13 @@ router.put(
 );
 
 /**
+ * @route   GET /api/drivers/ride-requests
+ * @desc    Get nearby ride requests (offers) for the driver
+ * @access  Private (Driver)
+ */
+router.get('/ride-requests', driverController.getNearbyRideRequests);
+
+/**
  * @route   PUT /api/drivers/location
  * @desc    Update driver location
  * @access  Private (Driver)
