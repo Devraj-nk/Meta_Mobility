@@ -1,4 +1,4 @@
-6#!/usr/bin/env node
+#!/usr/bin/env node
 /*
   Migration: Merge DriverAccount into Driver
   - Copies auth fields from driver_accounts into drivers
