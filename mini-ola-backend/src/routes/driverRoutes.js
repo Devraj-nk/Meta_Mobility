@@ -147,4 +147,59 @@ router.get('/earnings', driverController.getEarnings);
  */
 router.get('/stats', driverController.getStats);
 
+/**
+ * @route   GET /api/drivers/documents
+ * @desc    Get driver's vehicle and license details
+ * @access  Private (Driver)
+ */
+router.get('/documents', driverController.getDocuments);
+
+/**
+ * @route   PUT /api/drivers/documents
+ * @desc    Update driver's vehicle and license details
+ * @access  Private (Driver)
+ */
+router.put(
+  '/documents',
+  sanitizeInput,
+  [
+    body('vehicleType').optional().isIn(['bike', 'mini', 'sedan', 'suv']).withMessage('Invalid vehicle type'),
+    body('vehicleNumber').optional().isString().withMessage('Vehicle number must be a string'),
+    body('vehicleModel').optional().isString().withMessage('Vehicle model must be a string'),
+    body('vehicleColor').optional().isString().withMessage('Vehicle color must be a string'),
+    body('licenseNumber').optional().isString().withMessage('License number must be a string'),
+    body('licenseExpiry').optional().isISO8601().withMessage('License expiry must be a valid date')
+  ],
+  validate,
+  driverController.updateDocuments
+);
+
+/**
+ * @route   GET /api/drivers/bank
+ * @desc    Get driver's bank details (masked account number)
+ * @access  Private (Driver)
+ */
+router.get('/bank', driverController.getBankDetails);
+
+/**
+ * @route   PUT /api/drivers/bank
+ * @desc    Update driver's bank details
+ * @access  Private (Driver)
+ */
+router.put(
+  '/bank',
+  sanitizeInput,
+  [
+    body('accountHolderName').optional().isString().isLength({ min: 2 }).withMessage('Account holder name must be at least 2 characters'),
+    body('accountNumber').optional().matches(/^\d{9,18}$/).withMessage('Account number must be 9-18 digits'),
+    body('ifscCode').optional().matches(/^[A-Z]{4}0[A-Z0-9]{6}$/i).withMessage('Invalid IFSC code'),
+    body('bankName').optional().isString().isLength({ min: 2 }).withMessage('Bank name must be at least 2 characters'),
+    body('branchName').optional().isString().isLength({ min: 2 }).withMessage('Branch name must be at least 2 characters'),
+    body('upiId').optional().matches(/^[a-zA-Z0-9._-]{2,}@[A-Za-z][A-Za-z0-9]{2,}$/).withMessage('Invalid UPI ID'),
+    body('qrCodeImage').optional().isURL().withMessage('QR Code image must be a valid URL')
+  ],
+  validate,
+  driverController.updateBankDetails
+);
+
 module.exports = router;

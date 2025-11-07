@@ -31,7 +31,7 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['rider', 'driver', 'admin'],
+    enum: ['rider'],
     default: 'rider'
   },
   location: {
@@ -81,7 +81,8 @@ const userSchema = new mongoose.Schema({
     min: [0, 'Wallet balance cannot be negative']
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  collection: 'riders'
 });
 
 // Create geospatial index for location-based queries
