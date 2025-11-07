@@ -405,32 +405,43 @@ const registerDriver = asyncHandler(async (req, res) => {
 const loginDriver = asyncHandler(async (req, res) => {
   const { email, phone, password } = req.body;
 
-  // Basic input validation
   if ((!email && !phone) || !password) {
-    return res.status(400).json(
-      formatError('Email or phone and password are required', 400)
-    );
+    return res.status(400).json(formatError('Email or phone and password are required', 400));
   }
 
-  // Normalize inputs similar to registration
   const normEmail = (email || '').trim().toLowerCase();
   const normPhone = (phone || '').replace(/\D/g, '');
 
-  const user = await Driver.findOne({ $or: [{ email: normEmail }, { phone: normPhone }] }).select('+password');
+  // Prefer driver docs that actually have a password set (avoid legacy/partial docs)
+  const match = { $or: [{ email: normEmail }, { phone: normPhone }] };
+  let user = await Driver.findOne({
+    $and: [
+      match,
+      { password: { $exists: true, $type: 'string' } }
+    ]
+  }).select('+password');
+
+  // Fallback to any matching doc (if none with password found)
+  if (!user) {
+    user = await Driver.findOne(match).select('+password');
+  }
+
   if (!user) {
     return res.status(401).json(formatError('Invalid credentials', 401));
   }
   if (!user.isActive) {
     return res.status(401).json(formatError('Account is deactivated', 401));
   }
-  // Some older driver records may not have a password (pre-refactor); guard to avoid bcrypt errors
   if (!user.password) {
+    // Legacy/partial record without password
     return res.status(401).json(formatError('Invalid credentials', 401));
   }
-  const isPasswordValid = await user.comparePassword(password);
-  if (!isPasswordValid) {
+
+  const ok = await user.comparePassword(password);
+  if (!ok) {
     return res.status(401).json(formatError('Invalid credentials', 401));
   }
+
   const token = generateToken(user._id, 'driver');
   const driverProfile = {
     vehicleType: user.vehicleType,
@@ -441,21 +452,20 @@ const loginDriver = asyncHandler(async (req, res) => {
     licenseExpiry: user.licenseExpiry,
     kycStatus: user.kycStatus
   };
-  res.json(
-    formatSuccess('Login successful', {
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        rating: user.rating,
-        ridesCompleted: user.ridesCompleted,
-        driverProfile
-      },
-      token
-    })
-  );
+
+  return res.json(formatSuccess('Login successful', {
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      rating: user.rating,
+      ridesCompleted: user.ridesCompleted,
+      driverProfile
+    },
+    token
+  }));
 });
 
 /**
