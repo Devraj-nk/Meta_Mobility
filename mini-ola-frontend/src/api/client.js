@@ -32,7 +32,13 @@ export const api = {
   // Auth
   login: (payload) => client.post('/auth/login', payload),
   register: (payload) => client.post('/auth/register', payload),
+  registerDriver: (payload) => client.post('/auth/register-driver', payload),
+  loginDriver: (payload) => client.post('/auth/login-driver', payload),
   profile: () => client.get('/auth/profile'),
+  updateProfile: (payload) => client.put('/auth/profile', payload),
+  changePassword: (payload) => client.put('/auth/change-password', payload),
+  deleteAccount: () => client.delete('/auth/account'),
+  forgotPassword: (payload) => client.post('/auth/forgot-password', payload),
 
   // Rider
   fareEstimate: (payload) => client.post('/rides/estimate', payload),
@@ -55,6 +61,10 @@ export const api = {
   driverComplete: (id, payload) => client.put(`/drivers/rides/${id}/complete`, payload),
   driverEarnings: () => client.get('/drivers/earnings'),
   driverStats: () => client.get('/drivers/stats'),
+  driverDocuments: () => client.get('/drivers/documents'),
+  updateDriverDocuments: (payload) => client.put('/drivers/documents', payload),
+  driverBankDetails: () => client.get('/drivers/bank'),
+  updateDriverBankDetails: (payload) => client.put('/drivers/bank', payload),
 
   // Payments
   processPayment: (payload) => client.post('/payments/process', payload),
