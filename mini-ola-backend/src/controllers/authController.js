@@ -78,7 +78,8 @@ const register = asyncHandler(async (req, res) => {
         name: user.name,
         email: user.email,
         phone: user.phone,
-        role: user.role
+        role: user.role,
+        walletBalance: user.walletBalance
       },
       token
     })
@@ -137,6 +138,7 @@ const login = asyncHandler(async (req, res) => {
         phone: user.phone,
         role: user.role,
         rating: user.rating,
+        walletBalance: user.walletBalance,
         ridesCompleted: user.ridesCompleted,
         driverProfile: driverProfile
       },
@@ -174,6 +176,7 @@ const getProfile = asyncHandler(async (req, res) => {
         rating: user.rating,
         totalRatings: user.totalRatings,
         ridesCompleted: user.ridesCompleted,
+        walletBalance: user.walletBalance,
         isVerified: user.isVerified,
         profilePicture: user.profilePicture,
         driverProfile: driverProfile
@@ -187,7 +190,7 @@ const getProfile = asyncHandler(async (req, res) => {
  * PUT /api/auth/profile
  */
 const updateProfile = asyncHandler(async (req, res) => {
-  const { name, phone, profilePicture } = req.body;
+  const { name, phone, email, profilePicture } = req.body;
 
   const user = await User.findById(req.userId);
 
@@ -200,6 +203,16 @@ const updateProfile = asyncHandler(async (req, res) => {
   // Update fields
   if (name) user.name = name;
   if (phone) user.phone = phone;
+  // Allow updating email with uniqueness check
+  if (email && email !== user.email) {
+    const exists = await User.findOne({ email });
+    if (exists) {
+      return res.status(400).json(
+        formatError('Email already in use', 400)
+      );
+    }
+    user.email = email;
+  }
   if (profilePicture) user.profilePicture = profilePicture;
 
   await user.save();
@@ -215,6 +228,31 @@ const updateProfile = asyncHandler(async (req, res) => {
         profilePicture: user.profilePicture
       }
     })
+  );
+});
+
+/**
+ * Delete (deactivate) account for current user
+ * DELETE /api/auth/account
+ */
+const deleteAccount = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.userId);
+
+  if (!user) {
+    return res.status(404).json(
+      formatError('User not found', 404)
+    );
+  }
+
+  // Soft-delete: deactivate and mask unique fields to free them up
+  user.isActive = false;
+  const uniqueSuffix = `${Date.now()}${user._id.toString().slice(-6)}`;
+  user.email = `deleted+${uniqueSuffix}@example.invalid`;
+  user.phone = `9${uniqueSuffix}`.slice(0, 10); // ensure 10 digits
+  await user.save();
+
+  res.json(
+    formatSuccess('Account deleted successfully')
   );
 });
 
@@ -256,5 +294,6 @@ module.exports = {
   login,
   getProfile,
   updateProfile,
-  changePassword
+  changePassword,
+  deleteAccount
 };

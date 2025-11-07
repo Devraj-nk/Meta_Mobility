@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "cross-env NODE_ENV=test jest --runInBand"
+    "test": "cross-env NODE_ENV=test jest --runInBand",
+    "db:drop-users": "node scripts/drop-users.js",
+    "db:drop-riders": "node scripts/drop-riders.js"
   },
   "keywords": [
     "cab",

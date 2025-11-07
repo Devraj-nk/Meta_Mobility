@@ -14,8 +14,14 @@ const { asyncHandler } = require('../middleware/errorHandler');
  * Implements CAB-F-006
  */
 const processPayment = asyncHandler(async (req, res) => {
-  const { rideId } = req.body;
-  const method = 'wallet'; // Force wallet payment only
+  const { rideId, method: inputMethod } = req.body;
+  const method = inputMethod || 'wallet';
+
+  if (!['wallet', 'upi', 'cash'].includes(method)) {
+    return res.status(400).json(
+      formatError('Invalid payment method. Allowed: wallet, upi, cash', 400)
+    );
+  }
 
   // Get ride details
   const ride = await Ride.findById(rideId);
@@ -54,14 +60,25 @@ const processPayment = asyncHandler(async (req, res) => {
       existingPayment.method = method;
       existingPayment.status = 'pending';
       await existingPayment.save();
-      
+
       try {
-        await existingPayment.processPayment();
-        
+        if (method === 'wallet') {
+          await existingPayment.processPayment();
+        } else {
+          // Simulate non-wallet payment success (UPI/CASH)
+          existingPayment.platformFee = existingPayment.amount * 0.20;
+          existingPayment.driverEarnings = existingPayment.amount - existingPayment.platformFee;
+          if (method === 'upi') {
+            await existingPayment.generateTransactionId();
+          }
+          existingPayment.status = 'completed';
+          await existingPayment.save();
+        }
+
         // Update ride payment status
         ride.paymentStatus = 'completed';
         await ride.save();
-        
+
         return res.json(
           formatSuccess('Payment processed successfully', { payment: existingPayment })
         );
@@ -85,8 +102,19 @@ const processPayment = asyncHandler(async (req, res) => {
 
   // Process payment
   try {
-    await payment.processPayment();
-    
+    if (method === 'wallet') {
+      await payment.processPayment();
+    } else {
+      // Simulate non-wallet payment success (UPI/CASH)
+      payment.platformFee = payment.amount * 0.20;
+      payment.driverEarnings = payment.amount - payment.platformFee;
+      if (method === 'upi') {
+        await payment.generateTransactionId();
+      }
+      payment.status = 'completed';
+      await payment.save();
+    }
+
     // Update ride payment status
     ride.paymentStatus = 'completed';
     await ride.save();
@@ -243,9 +271,45 @@ const refundPayment = asyncHandler(async (req, res) => {
   );
 });
 
+/**
+ * Top up rider wallet (simulated)
+ * POST /api/payments/wallet/topup
+ */
+const topUpWallet = asyncHandler(async (req, res) => {
+  const { amount, method } = req.body;
+
+  if (!amount || amount <= 0) {
+    return res.status(400).json(
+      formatError('Amount must be greater than 0', 400)
+    );
+  }
+
+  if (method && !['upi', 'cash'].includes(method)) {
+    return res.status(400).json(
+      formatError('Invalid top-up method. Allowed: upi, cash', 400)
+    );
+  }
+
+  const User = require('../models/User');
+  const user = await User.findById(req.userId);
+  if (!user) {
+    return res.status(404).json(formatError('User not found', 404));
+  }
+
+  user.walletBalance += amount;
+  await user.save();
+
+  return res.status(201).json(
+    formatSuccess('Wallet topped up successfully', {
+      balance: user.walletBalance
+    })
+  );
+});
+
 module.exports = {
   processPayment,
   getPaymentReceipt,
   getPaymentHistory,
-  refundPayment
+  refundPayment,
+  topUpWallet
 };

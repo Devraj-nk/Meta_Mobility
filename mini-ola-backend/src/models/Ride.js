@@ -102,6 +102,11 @@ const rideSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  // Flag indicating whether the rider's OTP has been verified by the driver
+  otpVerified: {
+    type: Boolean,
+    default: false
+  },
   scheduledTime: {
     type: Date,
     default: null
