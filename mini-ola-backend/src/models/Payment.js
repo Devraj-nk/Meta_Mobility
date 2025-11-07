@@ -14,7 +14,7 @@ const paymentSchema = new mongoose.Schema({
   },
   driver: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    ref: 'Driver', // was 'DriverAccount'
     required: true
   },
   amount: {
@@ -107,46 +107,39 @@ paymentSchema.methods.generateTransactionId = function() {
   return this.save();
 };
 
-// Process payment using wallet
+// Process payment
 paymentSchema.methods.processPayment = async function() {
   const User = mongoose.model('User');
-  
+
   this.status = 'processing';
   await this.save();
-  
+
   // Calculate platform fee (20% commission)
   this.platformFee = this.amount * 0.20;
   this.driverEarnings = this.amount - this.platformFee;
-  
+
   try {
-    // Deduct from rider's wallet
-    const rider = await User.findById(this.rider);
-    
-    if (!rider) {
-      throw new Error('Rider not found');
+    // If paying via wallet, deduct from rider's wallet
+    if (this.method === 'wallet') {
+      const rider = await User.findById(this.rider);
+      if (!rider) {
+        this.status = 'failed';
+        await this.save();
+        throw new Error('Rider not found');
+      }
+      if (rider.walletBalance < this.amount) {
+        this.status = 'failed';
+        await this.save();
+        throw new Error('Insufficient wallet balance');
+      }
+      rider.walletBalance -= this.amount;
+      await rider.save();
     }
-    
-    if (rider.walletBalance < this.amount) {
-      this.status = 'failed';
-      await this.save();
-      throw new Error('Insufficient wallet balance');
-    }
-    
-    // Deduct from rider wallet
-    rider.walletBalance -= this.amount;
-    await rider.save();
-    
-    // Add earnings to driver wallet
-    const driver = await User.findById(this.driver);
-    if (driver) {
-      driver.walletBalance += this.driverEarnings;
-      await driver.save();
-    }
-    
-    // Generate transaction ID
+
+    // Generate transaction ID for non-cash
     await this.generateTransactionId();
+
     this.status = 'completed';
-    
     return await this.save();
   } catch (error) {
     this.status = 'failed';
@@ -155,35 +148,32 @@ paymentSchema.methods.processPayment = async function() {
   }
 };
 
-// Refund payment to rider wallet
+// Refund payment to rider wallet (no driver wallet involved)
 paymentSchema.methods.refundPayment = async function(reason, amount) {
   const User = mongoose.model('User');
-  
+
   if (this.status !== 'completed') {
     throw new Error('Cannot refund payment that is not completed');
   }
-  
+
   const refundAmount = amount || this.amount;
-  
+
   // Refund to rider's wallet
   const rider = await User.findById(this.rider);
   if (rider) {
     rider.walletBalance += refundAmount;
     await rider.save();
   }
-  
-  // Deduct from driver's wallet
-  const driver = await User.findById(this.driver);
-  if (driver) {
-    driver.walletBalance -= refundAmount;
-    await driver.save();
-  }
-  
+
+  // Since no driver wallet exists, zero-out earnings/fees for this payment
+  this.driverEarnings = 0;
+  this.platformFee = 0;
+
   this.status = 'refunded';
   this.refundAmount = refundAmount;
   this.refundReason = reason;
   this.refundedAt = new Date();
-  
+
   return await this.save();
 };
 

@@ -57,7 +57,7 @@ const getNearbyRideRequests = asyncHandler(async (req, res) => {
 const toggleAvailability = asyncHandler(async (req, res) => {
   const { isAvailable, latitude, longitude, address } = req.body;
 
-  const driver = await Driver.findOne({ user: req.userId });
+  const driver = await Driver.findById(req.userId).select('+password');
 
   if (!driver) {
     return res.status(404).json(
@@ -101,7 +101,7 @@ const toggleAvailability = asyncHandler(async (req, res) => {
 const updateLocation = asyncHandler(async (req, res) => {
   const { latitude, longitude, address } = req.body;
 
-  const driver = await Driver.findOne({ user: req.userId });
+  const driver = await Driver.findById(req.userId);
 
   if (!driver) {
     return res.status(404).json(
@@ -123,7 +123,7 @@ const updateLocation = asyncHandler(async (req, res) => {
  * GET /api/drivers/rides/active
  */
 const getActiveRide = asyncHandler(async (req, res) => {
-  const driver = await Driver.findOne({ user: req.userId });
+  const driver = await Driver.findById(req.userId);
 
   if (!driver) {
     return res.status(404).json(
@@ -138,8 +138,8 @@ const getActiveRide = asyncHandler(async (req, res) => {
   }
 
   const ride = await Ride.findById(driver.currentRide)
-    .populate('rider', 'name phone rating profilePicture')
-    .populate('driver', 'name phone rating profilePicture');
+    .populate({ path: 'rider', select: 'name phone rating profilePicture', model: 'User' })
+    .populate({ path: 'driver', select: 'name phone rating profilePicture', model: 'Driver' });
 
   res.json(
     formatSuccess('Active ride retrieved successfully', { ride })
@@ -154,7 +154,7 @@ const acceptRide = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { otp } = req.body;
 
-  const driver = await Driver.findOne({ user: req.userId });
+  const driver = await Driver.findById(req.userId);
 
   if (!driver) {
     return res.status(404).json(
@@ -213,7 +213,7 @@ const acceptRide = asyncHandler(async (req, res) => {
   driver.isAvailable = false;
   await driver.save();
 
-  await ride.populate('rider', 'name phone rating profilePicture');
+  await ride.populate({ path: 'rider', select: 'name phone rating profilePicture', model: 'User' });
 
   res.json(
     formatSuccess('Ride accepted successfully', { ride })
@@ -369,7 +369,7 @@ const completeRide = asyncHandler(async (req, res) => {
   await ride.completeRide(finalFare);
 
   // Update driver stats
-  const driver = await Driver.findOne({ user: req.userId });
+  const driver = await Driver.findById(req.userId);
   if (driver) {
     await driver.addEarnings(ride.fare.finalFare);
     driver.currentRide = null;
@@ -394,8 +394,7 @@ const completeRide = asyncHandler(async (req, res) => {
  * GET /api/drivers/earnings
  */
 const getEarnings = asyncHandler(async (req, res) => {
-  const driver = await Driver.findOne({ user: req.userId })
-    .populate('user', 'name rating');
+  const driver = await Driver.findById(req.userId);
 
   if (!driver) {
     return res.status(404).json(
@@ -424,8 +423,8 @@ const getEarnings = asyncHandler(async (req, res) => {
   res.json(
     formatSuccess('Earnings retrieved successfully', {
       driver: {
-        name: driver.user.name,
-        rating: driver.user.rating,
+        name: driver.name,
+        rating: driver.rating,
         level: driver.level,
         badges: driver.badges,
         vehicleType: driver.vehicleType,
@@ -445,8 +444,7 @@ const getEarnings = asyncHandler(async (req, res) => {
  * GET /api/drivers/stats
  */
 const getStats = asyncHandler(async (req, res) => {
-  const driver = await Driver.findOne({ user: req.userId })
-    .populate('user', 'name rating totalRatings');
+  const driver = await Driver.findById(req.userId);
 
   if (!driver) {
     return res.status(404).json(
@@ -470,8 +468,8 @@ const getStats = asyncHandler(async (req, res) => {
     formatSuccess('Stats retrieved successfully', {
       totalRides: driver.totalRides,
       totalEarnings: driver.totalEarnings,
-      rating: driver.user.rating,
-      totalRatings: driver.user.totalRatings,
+  rating: driver.rating,
+  totalRatings: driver.totalRatings,
       acceptanceRate: driver.acceptanceRate,
       cancelledRides,
       level: driver.level,
@@ -489,9 +487,8 @@ const getStats = asyncHandler(async (req, res) => {
 const debugAvailableDrivers = asyncHandler(async (req, res) => {
   // Get all drivers with their details
   const allDrivers = await Driver.find()
-    .populate('user', 'name email phone role')
     .populate('currentRide')
-    .select('isAvailable kycStatus currentLocation currentRide vehicleType vehicleNumber');
+    .select('name email phone role isAvailable kycStatus currentLocation currentRide vehicleType vehicleNumber');
 
   const availableDrivers = allDrivers.filter(d => 
     d.isAvailable === true && 
@@ -504,10 +501,10 @@ const debugAvailableDrivers = asyncHandler(async (req, res) => {
     availableDrivers: availableDrivers.length,
     drivers: allDrivers.map(driver => ({
       _id: driver._id,
-      userId: driver.user?._id,
-      name: driver.user?.name || 'Unknown',
-      email: driver.user?.email,
-      phone: driver.user?.phone,
+      userId: driver._id,
+      name: driver.name || 'Unknown',
+      email: driver.email,
+      phone: driver.phone,
       isAvailable: driver.isAvailable,
       kycStatus: driver.kycStatus,
       currentRide: driver.currentRide ? 'Has active ride' : 'No active ride',
@@ -558,7 +555,7 @@ const debugResetDriver = asyncHandler(async (req, res) => {
  * POST /api/drivers/clear-stuck-ride
  */
 const clearStuckRide = asyncHandler(async (req, res) => {
-  const driver = await Driver.findOne({ user: req.userId });
+  const driver = await Driver.findById(req.userId);
 
   if (!driver) {
     return res.status(404).json(formatError('Driver profile not found', 404));
@@ -644,5 +641,122 @@ module.exports = {
   debugAvailableDrivers,
   debugResetDriver,
   clearStuckRide,
+  // new exports
+  getDocuments: asyncHandler(async (req, res) => {
+    const driver = await Driver.findById(req.userId);
+    if (!driver) {
+      return res.status(404).json(formatError('Driver profile not found', 404));
+    }
+    const docs = {
+      vehicleType: driver.vehicleType,
+      vehicleNumber: driver.vehicleNumber,
+      vehicleModel: driver.vehicleModel,
+      vehicleColor: driver.vehicleColor,
+      licenseNumber: driver.licenseNumber,
+      licenseExpiry: driver.licenseExpiry,
+      kycStatus: driver.kycStatus
+    };
+    return res.json(formatSuccess('Driver documents', docs));
+  }),
+  updateDocuments: asyncHandler(async (req, res) => {
+    const driver = await Driver.findById(req.userId);
+    if (!driver) {
+      return res.status(404).json(formatError('Driver profile not found', 404));
+    }
+    const {
+      vehicleType,
+      vehicleNumber,
+      vehicleModel,
+      vehicleColor,
+      licenseNumber,
+      licenseExpiry
+    } = req.body;
+
+    if (vehicleType !== undefined) driver.vehicleType = vehicleType;
+    if (vehicleNumber !== undefined) driver.vehicleNumber = vehicleNumber;
+    if (vehicleModel !== undefined) driver.vehicleModel = vehicleModel;
+    if (vehicleColor !== undefined) driver.vehicleColor = vehicleColor;
+    if (licenseNumber !== undefined) driver.licenseNumber = licenseNumber;
+    if (licenseExpiry !== undefined) driver.licenseExpiry = licenseExpiry;
+
+    await driver.save();
+    const docs = {
+      vehicleType: driver.vehicleType,
+      vehicleNumber: driver.vehicleNumber,
+      vehicleModel: driver.vehicleModel,
+      vehicleColor: driver.vehicleColor,
+      licenseNumber: driver.licenseNumber,
+      licenseExpiry: driver.licenseExpiry,
+      kycStatus: driver.kycStatus
+    };
+    return res.json(formatSuccess('Driver documents updated', docs));
+  }),
+  // Bank details
+  getBankDetails: asyncHandler(async (req, res) => {
+    const driver = await Driver.findById(req.userId);
+    if (!driver) {
+      return res.status(404).json(formatError('Driver profile not found', 404));
+    }
+
+    const bd = driver.bankDetails || {};
+    const accNum = bd.accountNumber || '';
+    const masked = accNum
+      ? accNum.length <= 4
+        ? '*'.repeat(Math.max(0, accNum.length - 0)) + accNum
+        : '*'.repeat(accNum.length - 4) + accNum.slice(-4)
+      : '';
+
+    return res.json(
+      formatSuccess('Bank details retrieved', {
+        accountHolderName: bd.accountHolderName || '',
+        ifscCode: bd.ifscCode || '',
+        bankName: bd.bankName || '',
+        branchName: bd.branchName || '',
+        upiId: bd.upiId || '',
+        qrCodeImage: bd.qrCodeImage || '',
+        accountNumberMasked: masked,
+        hasAccountNumber: !!accNum
+      })
+    );
+  }),
+  updateBankDetails: asyncHandler(async (req, res) => {
+    const driver = await Driver.findById(req.userId);
+    if (!driver) {
+      return res.status(404).json(formatError('Driver profile not found', 404));
+    }
+
+    const { accountHolderName, accountNumber, ifscCode, bankName, branchName, upiId, qrCodeImage } = req.body;
+
+    driver.bankDetails = {
+      accountHolderName: accountHolderName ?? driver.bankDetails?.accountHolderName ?? '',
+      accountNumber: accountNumber ?? driver.bankDetails?.accountNumber ?? '',
+      ifscCode: ifscCode ?? driver.bankDetails?.ifscCode ?? '',
+      bankName: bankName ?? driver.bankDetails?.bankName ?? '',
+      branchName: branchName ?? driver.bankDetails?.branchName ?? '',
+      upiId: upiId ?? driver.bankDetails?.upiId ?? '',
+      qrCodeImage: qrCodeImage ?? driver.bankDetails?.qrCodeImage ?? ''
+    };
+
+    await driver.save();
+
+    const accNum = driver.bankDetails.accountNumber || '';
+    const masked = accNum
+      ? accNum.length <= 4
+        ? '*'.repeat(Math.max(0, accNum.length - 0)) + accNum
+        : '*'.repeat(accNum.length - 4) + accNum.slice(-4)
+      : '';
+
+    return res.json(
+      formatSuccess('Bank details updated successfully', {
+        accountHolderName: driver.bankDetails.accountHolderName,
+        ifscCode: driver.bankDetails.ifscCode,
+        bankName: driver.bankDetails.bankName,
+        branchName: driver.bankDetails.branchName,
+        upiId: driver.bankDetails.upiId,
+        qrCodeImage: driver.bankDetails.qrCodeImage,
+        accountNumberMasked: masked
+      })
+    );
+  })
   getNearbyRideRequests
 };

@@ -230,6 +230,8 @@ const DriverDashboard = () => {
 
   const kycStatus = driverProfile?.kycStatus || 'pending'
   const isKycApproved = kycStatus === 'approved'
+  // Use driver profile rating; clamp between 0 and 5, default 0
+  const rating = Math.max(0, Math.min(5, Number(driverProfile?.rating) || 0))
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -698,19 +700,22 @@ const DriverDashboard = () => {
               <div>
                 <div className="text-sm text-gray-600 mb-2">Rating</div>
                 <div className="flex items-center gap-1">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star
-                      key={star}
-                      className={`h-5 w-5 cursor-pointer transition-colors ${
-                        star <= Math.round(user?.rating || 5)
-                          ? 'text-yellow-400 fill-yellow-400'
-                          : 'text-gray-300'
-                      }`}
-                      onClick={() => console.log(`Clicked star ${star}`)}
-                    />
-                  ))}
+                  {[1, 2, 3, 4, 5].map((star) => {
+                    const active = star <= Math.round(rating)
+                    return (
+                      <Star
+                        key={star}
+                        aria-hidden
+                        className={`h-5 w-5 pointer-events-none transition-colors ${
+                          active
+                            ? 'text-yellow-400 fill-yellow-400'
+                            : 'text-gray-300 fill-transparent stroke-gray-400'
+                        }`}
+                      />
+                    )
+                  })}
                   <span className="ml-2 text-sm font-semibold text-gray-700">
-                    {user?.rating?.toFixed(1) || '5.0'}
+                    {rating.toFixed(1)}
                   </span>
                 </div>
               </div>
@@ -750,17 +755,11 @@ const DriverDashboard = () => {
           <div className="card">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Quick Actions</h3>
             <div className="space-y-3">
-              <button 
+              <button
                 className="w-full btn-secondary text-left"
-                disabled={!isKycApproved}
+                onClick={() => navigate('/driver/history')}
               >
-                View Earnings History
-              </button>
-              <button 
-                className="w-full btn-secondary text-left"
-                disabled={!isKycApproved}
-              >
-                Update Location
+                View History
               </button>
               <button className="w-full btn-secondary text-left">
                 Contact Support

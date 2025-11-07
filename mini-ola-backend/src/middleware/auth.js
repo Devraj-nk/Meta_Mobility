@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Driver = require('../models/Driver');
 const { formatError } = require('../utils/helpers');
 
 /**
@@ -21,8 +22,13 @@ const authenticate = async (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Find user
-    const user = await User.findById(decoded.id);
+    // Find account based on role
+    let user;
+    if (decoded.role === 'driver') {
+      user = await Driver.findById(decoded.id);
+    } else {
+      user = await User.findById(decoded.id);
+    }
 
     if (!user || !user.isActive) {
       return res.status(401).json(
@@ -86,8 +92,12 @@ const optionalAuth = async (req, res, next) => {
 
     if (token) {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findById(decoded.id);
-      
+      let user;
+      if (decoded.role === 'driver') {
+        user = await Driver.findById(decoded.id);
+      } else {
+        user = await User.findById(decoded.id);
+      }
       if (user && user.isActive) {
         req.user = user;
         req.userId = user._id;

@@ -15,7 +15,7 @@ Authorization: Bearer <token>
 
 ## Authentication Endpoints
 
-### 1. Register User
+### 1. Register Rider
 **POST** `/auth/register`
 
 **Body:**
@@ -25,18 +25,22 @@ Authorization: Bearer <token>
   "email": "john@example.com",
   "phone": "9876543210",
   "password": "password123",
-  "role": "rider" // or "driver"
+  "role": "rider"
 }
 ```
 
-**For Driver Registration (additional fields):**
+Note: This endpoint accepts only rider registrations. Driver registrations use a separate endpoint.
+
+### 1b. Register Driver
+**POST** `/auth/register-driver`
+
+Body:
 ```json
 {
   "name": "Driver Name",
   "email": "driver@example.com",
   "phone": "9876543210",
   "password": "password123",
-  "role": "driver",
   "vehicleType": "sedan",
   "vehicleNumber": "KA01AB1234",
   "vehicleModel": "Honda City",
@@ -45,6 +49,8 @@ Authorization: Bearer <token>
   "licenseExpiry": "2026-12-31"
 }
 ```
+
+Response includes JWT token with role = "driver".
 
 **Response:**
 ```json
@@ -60,8 +66,20 @@ Authorization: Bearer <token>
 
 ---
 
-### 2. Login
+### 2. Login (Rider)
 **POST** `/auth/login`
+### 2b. Login (Driver)
+**POST** `/auth/login-driver`
+
+Body:
+```json
+{
+  "email": "driver@example.com",
+  "password": "password123"
+}
+```
+
+Returns JWT token with role = "driver".
 
 **Body:**
 ```json
@@ -105,6 +123,32 @@ Authorization: Bearer <token>
 {
   "currentPassword": "oldpassword",
   "newPassword": "newpassword123"
+}
+```
+
+---
+
+### 6. Forgot Password
+**POST** `/auth/forgot-password`
+
+Reset a user's password using their username and email. Username maps to the full name used at registration.
+
+**Body:**
+```json
+{
+  "username": "John Doe",
+  "email": "john@example.com",
+  "newPassword": "newpassword123",
+  "confirmPassword": "newpassword123"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Password reset successful. Please login with your new password.",
+  "data": null
 }
 ```
 

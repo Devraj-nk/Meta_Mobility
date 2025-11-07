@@ -31,27 +31,10 @@ router.post(
     body('password')
       .notEmpty().withMessage('Password is required')
       .isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+    // Only riders allowed in this collection
     body('role')
       .optional()
-      .isIn(['rider', 'driver', 'admin']).withMessage('Invalid role'),
-    // Driver-specific validations
-    body('vehicleType')
-      .if(body('role').equals('driver'))
-      .notEmpty().withMessage('Vehicle type is required for drivers')
-      .isIn(['bike', 'mini', 'sedan', 'suv']).withMessage('Invalid vehicle type'),
-    body('vehicleNumber')
-      .if(body('role').equals('driver'))
-      .notEmpty().withMessage('Vehicle number is required for drivers'),
-    body('vehicleModel')
-      .if(body('role').equals('driver'))
-      .notEmpty().withMessage('Vehicle model is required for drivers'),
-    body('licenseNumber')
-      .if(body('role').equals('driver'))
-      .notEmpty().withMessage('License number is required for drivers'),
-    body('licenseExpiry')
-      .if(body('role').equals('driver'))
-      .notEmpty().withMessage('License expiry is required for drivers')
-      .isISO8601().withMessage('Invalid date format')
+      .equals('rider').withMessage('Only rider registrations are allowed')
   ],
   validate,
   authController.register
@@ -72,6 +55,46 @@ router.post(
   ],
   validate,
   authController.login
+);
+
+/**
+ * @route   POST /api/auth/register-driver
+ * @desc    Register driver (auth + profile)
+ * @access  Public
+ */
+router.post(
+  '/register-driver',
+  sanitizeInput,
+  [
+    body('name').trim().notEmpty(),
+    body('email').trim().notEmpty().isEmail().normalizeEmail(),
+    body('phone').trim().notEmpty().matches(/^[0-9]{10}$/),
+    body('password').notEmpty().isLength({ min: 6 }),
+    body('vehicleType').notEmpty().isIn(['bike', 'mini', 'sedan', 'suv']),
+    body('vehicleNumber').notEmpty(),
+    body('vehicleModel').notEmpty(),
+    body('licenseNumber').notEmpty(),
+    body('licenseExpiry').notEmpty().isISO8601()
+  ],
+  validate,
+  authController.registerDriver
+);
+
+/**
+ * @route   POST /api/auth/login-driver
+ * @desc    Login driver
+ * @access  Public
+ */
+router.post(
+  '/login-driver',
+  sanitizeInput,
+  [
+    body('email').optional().isEmail().withMessage('Invalid email format'),
+    body('phone').optional().matches(/^[0-9]{10}$/).withMessage('Phone must be 10 digits'),
+    body('password').notEmpty().withMessage('Password is required')
+  ],
+  validate,
+  authController.loginDriver
 );
 
 /**
@@ -103,6 +126,12 @@ router.put(
       .optional()
       .trim()
       .matches(/^[0-9]{10}$/).withMessage('Phone must be 10 digits')
+      ,
+    body('email')
+      .optional()
+      .trim()
+      .isEmail().withMessage('Invalid email format')
+      .normalizeEmail()
   ],
   validate,
   authController.updateProfile
@@ -132,5 +161,32 @@ router.put(
  * @access  Private
  */
 router.delete('/account', authenticate, authController.deleteAccount);
-
+/**
+ * @route   POST /api/auth/forgot-password
+ * @desc    Reset password using username and email
+ * @access  Public
+ */
+router.post(
+  '/forgot-password',
+  sanitizeInput,
+  [
+    body('username')
+      .trim()
+      .notEmpty().withMessage('Username is required')
+      .isLength({ min: 2, max: 100 }).withMessage('Username must be 2-100 characters'),
+    body('email')
+      .trim()
+      .notEmpty().withMessage('Email is required')
+      .isEmail().withMessage('Invalid email format')
+      .normalizeEmail(),
+    body('newPassword')
+      .notEmpty().withMessage('New password is required')
+      .isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+    body('confirmPassword')
+      .custom((value, { req }) => value === req.body.newPassword)
+      .withMessage('Passwords do not match')
+  ],
+  validate,
+  authController.forgotPassword
+);
 module.exports = router;

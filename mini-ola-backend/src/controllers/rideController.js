@@ -134,7 +134,7 @@ const requestRide = asyncHandler(async (req, res) => {
     isAvailable: true,
     kycStatus: 'approved',
     currentRide: null
-  }).populate('user', 'name');
+  });
   
   console.log('📍 Available drivers locations:');
   allAvailableDrivers.forEach(driver => {
@@ -240,7 +240,6 @@ const requestRide = asyncHandler(async (req, res) => {
       formatError(errorMessage, 404)
     );
   }
-
   // Do NOT auto-assign. Keep as 'requested' and let drivers accept.
   // Optionally, we could notify nearby drivers via realtime or polling.
   await ride.save();
@@ -265,8 +264,8 @@ const getRideDetails = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const ride = await Ride.findById(id)
-    .populate('rider', 'name phone rating profilePicture')
-    .populate('driver', 'name phone rating profilePicture');
+    .populate({ path: 'rider', select: 'name phone rating profilePicture', model: 'User' })
+  .populate({ path: 'driver', select: 'name phone rating profilePicture', model: 'Driver' });
 
   if (!ride) {
     return res.status(404).json(
@@ -295,14 +294,17 @@ const getRideDetails = asyncHandler(async (req, res) => {
  */
 const getRideHistory = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, status } = req.query;
-  
-  const query = { rider: req.userId };
+
+  // Support both rider and driver histories
+  const isDriver = req.userRole === 'driver';
+  const query = isDriver ? { driver: req.userId } : { rider: req.userId };
   if (status) {
     query.status = status;
   }
 
   const rides = await Ride.find(query)
-    .populate('driver', 'name phone rating')
+    .populate({ path: 'rider', select: 'name phone rating profilePicture', model: 'User' })
+  .populate({ path: 'driver', select: 'name phone rating profilePicture', model: 'Driver' })
     .sort({ createdAt: -1 })
     .limit(limit * 1)
     .skip((page - 1) * limit);
@@ -354,7 +356,7 @@ const cancelRide = asyncHandler(async (req, res) => {
 
   // Update driver availability if driver was assigned
   if (ride.driver) {
-    const driver = await Driver.findOne({ user: ride.driver });
+  const driver = await Driver.findById(ride.driver);
     if (driver) {
       driver.currentRide = null;
       driver.isAvailable = true;
@@ -412,9 +414,11 @@ const rateRide = asyncHandler(async (req, res) => {
   await ride.save();
 
   // Update driver rating
-  const driverUser = await User.findById(ride.driver);
+  const driverUser = await Driver.findById(ride.driver);
   if (driverUser) {
-    await driverUser.updateRating(rating);
+    driverUser.rating = ((driverUser.rating * driverUser.totalRatings) + rating) / (driverUser.totalRatings + 1);
+    driverUser.totalRatings += 1;
+    await driverUser.save();
   }
 
   res.json(
@@ -431,8 +435,8 @@ const getActiveRide = asyncHandler(async (req, res) => {
     rider: req.userId,
     status: { $in: ['requested', 'accepted', 'driver-arrived', 'in-progress'] }
   })
-    .populate('rider', 'name phone rating profilePicture')
-    .populate('driver', 'name phone rating profilePicture');
+    .populate({ path: 'rider', select: 'name phone rating profilePicture', model: 'User' })
+  .populate({ path: 'driver', select: 'name phone rating profilePicture', model: 'Driver' });
 
   if (!ride) {
     return res.status(404).json(

@@ -1,4 +1,26 @@
-import { User, HelpCircle, CreditCard, MapPin, Shield, Bell, FileText, ChevronRight, Car, DollarSign, Clock, TrendingUp, Settings, Award, Wallet, Plus, Minus } from 'lucide-react'
+import {
+  User,
+  Star,
+  HelpCircle,
+  Package,
+  CreditCard,
+  MapPin,
+  Shield,
+  Gift,
+  Zap,
+  Bell,
+  FileText,
+  ChevronRight,
+  Car,
+  Settings,
+  DollarSign,
+  Clock,
+  TrendingUp,
+  Award,
+  Wallet,
+  Plus,
+  Minus
+} from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
@@ -13,22 +35,48 @@ const Profile = () => {
   console.log('User role:', user?.role)
 
   const handleMenuClick = (path) => {
-    // For now, navigate to the path or show alert for unimplemented pages
-    if (path === '/rides') {
-      navigate('/rides')
-    } else if (path === '/driver/trips') {
-      navigate('/driver/dashboard')
-    } else if (path === '/safety') {
-      navigate('/safety')
-    } else if (path === '/help') {
-      navigate('/help')
-    } else if (path === '/settings') {
-      navigate('/settings')
-    } else if (path === '/payment' || path === '/driver/bank') {
-      alert('Payment/Bank section - Coming soon!')
-    } else {
-      alert(`${path} - Coming soon!`)
-    }
+// Navigate directly for implemented driver routes
+  if (
+    path === '/driver/history' ||
+    path === '/driver/documents' ||
+    path === '/driver/account' ||
+    path === '/driver/bank'
+  ) {
+    navigate(path)
+    return
+  }
+
+  // Existing shortcuts and general pages
+  if (path === '/rides' || path === '/driver/trips') {
+    navigate(user?.role === 'driver' ? '/driver/dashboard' : '/rider/dashboard')
+    return
+  }
+
+  if (path === '/safety') {
+    navigate('/safety')
+    return
+  }
+
+  if (path === '/help') {
+    navigate('/help')
+    return
+  }
+
+  if (path === '/settings') {
+    navigate('/settings')
+    return
+  }
+
+  if (path === '/payment' || path === '/driver/bank') {
+    navigate(path)
+    return
+  }
+
+    alert('Payment/Bank section - Coming soon!')
+    return
+  }
+    // Default placeholder
+    alert(`${path} - Coming soon!`)
   }
 
   // Rider-specific menu items
@@ -36,22 +84,15 @@ const Profile = () => {
     { icon: MapPin, label: 'My Rides', path: '/rides' },
     { icon: Shield, label: 'Safety', path: '/safety' },
     { icon: HelpCircle, label: 'Help & Support', path: '/help' },
-    { icon: Settings, label: 'Settings', path: '/settings' },
   ]
 
   // Driver-specific menu items
   const driverMenuItems = [
-    { icon: Car, label: 'My Trips', path: '/driver/trips' },
-    { icon: DollarSign, label: 'Earnings', path: '/driver/earnings' },
-    { icon: Clock, label: 'Working Hours', path: '/driver/hours' },
-    { icon: TrendingUp, label: 'Performance', path: '/driver/performance' },
-    { icon: Award, label: 'Achievements', path: '/driver/achievements' },
+    { icon: FileText, label: 'History', path: '/driver/history' },
     { icon: CreditCard, label: 'Bank Details', path: '/driver/bank' },
     { icon: FileText, label: 'Documents', path: '/driver/documents' },
-    { icon: Bell, label: 'Notifications', path: '/notifications' },
     { icon: Shield, label: 'Safety', path: '/safety' },
     { icon: HelpCircle, label: 'Help & Support', path: '/help' },
-    { icon: Settings, label: 'Settings', path: '/settings' },
   ]
 
   const menuItems = user?.role === 'driver' ? driverMenuItems : riderMenuItems
@@ -92,9 +133,15 @@ const Profile = () => {
 
         {/* User Card */}
         <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
-          <button 
-            onClick={() => navigate('/settings')}
-            className="w-full flex items-center justify-between mb-4 pb-4 border-b border-gray-100 hover:bg-gray-50 active:bg-gray-100 transition-colors rounded-lg p-2 -m-2"
+          <button
+            onClick={() => {
+              if (user?.role === 'driver') {
+                navigate('/driver/account')
+              } else {
+                navigate('/settings')
+              }
+            }}
+            className="w-full flex items-center justify-between hover:bg-gray-50 active:bg-gray-100 transition-colors rounded-lg p-2 -m-2"
           >
             <div className="flex items-center space-x-3">
               <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
@@ -113,7 +160,6 @@ const Profile = () => {
             </div>
             <ChevronRight className="w-5 h-5 text-gray-400" />
           </button>
-
           {/* Rating removed as requested */}
         </div>
 

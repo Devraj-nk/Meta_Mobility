@@ -12,20 +12,12 @@ const { asyncHandler } = require('../middleware/errorHandler');
  * Register new user (rider or driver)
  * POST /api/auth/register
  */
-const register = asyncHandler(async (req, res) => {
+const register = asyncHandler(async (req, res) => { 
   const {
     name,
     email,
     phone,
-    password,
-    role,
-    // Driver-specific fields
-    vehicleType,
-    vehicleNumber,
-    vehicleModel,
-    vehicleColor,
-    licenseNumber,
-    licenseExpiry
+    password
   } = req.body;
 
   // Check if user already exists
@@ -45,28 +37,8 @@ const register = asyncHandler(async (req, res) => {
     email,
     phone,
     password, // Will be hashed by pre-save hook (CAB-SR-002)
-    role: role || 'rider'
+    role: 'rider'
   });
-
-  // If role is driver, create driver profile
-  if (user.role === 'driver') {
-    if (!vehicleType || !vehicleNumber || !vehicleModel || !licenseNumber || !licenseExpiry) {
-      await User.findByIdAndDelete(user._id);
-      return res.status(400).json(
-        formatError('Driver registration requires vehicle and license details', 400)
-      );
-    }
-
-    await Driver.create({
-      user: user._id,
-      vehicleType,
-      vehicleNumber,
-      vehicleModel,
-      vehicleColor,
-      licenseNumber,
-      licenseExpiry
-    });
-  }
 
   // Generate token (CAB-SR-003)
   const token = generateToken(user._id, user.role);
@@ -93,9 +65,13 @@ const register = asyncHandler(async (req, res) => {
 const login = asyncHandler(async (req, res) => {
   const { email, phone, password } = req.body;
 
+  // Normalize inputs for reliable matching
+  const normEmail = (email || '').trim().toLowerCase();
+  const normPhone = (phone || '').replace(/\D/g, '');
+
   // Find user by email or phone
   const user = await User.findOne({
-    $or: [{ email }, { phone }]
+    $or: [{ email: normEmail }, { phone: normPhone }]
   }).select('+password');
 
   if (!user) {
@@ -152,36 +128,125 @@ const login = asyncHandler(async (req, res) => {
  * GET /api/auth/profile
  */
 const getProfile = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.userId);
+  // Determine source collection by role set in auth middleware
+  const role = req.userRole || req.user?.role
+  let account = null
 
-  if (!user) {
+  if (role === 'driver') {
+    account = await Driver.findById(req.userId)
+  } else {
+    account = await User.findById(req.userId)
+  }
+
+  if (!account) {
     return res.status(404).json(
       formatError('User not found', 404)
     );
   }
 
   let driverProfile = null;
-  if (user.role === 'driver') {
-    driverProfile = await Driver.findOne({ user: user._id });
+  if (role === 'driver') {
+    // For backward compatibility, expose key driver profile fields within driverProfile
+    driverProfile = {
+      vehicleType: account.vehicleType,
+      vehicleNumber: account.vehicleNumber,
+      vehicleModel: account.vehicleModel,
+      vehicleColor: account.vehicleColor,
+      licenseNumber: account.licenseNumber,
+      licenseExpiry: account.licenseExpiry,
+      kycStatus: account.kycStatus
+    };
   }
 
   res.json(
     formatSuccess('Profile retrieved successfully', {
       user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        rating: user.rating,
-        totalRatings: user.totalRatings,
-        ridesCompleted: user.ridesCompleted,
-        walletBalance: user.walletBalance,
-        isVerified: user.isVerified,
-        profilePicture: user.profilePicture,
+        id: account._id,
+        name: account.name,
+        email: account.email,
+        phone: account.phone,
+        role: account.role,
+        rating: account.rating,
+        totalRatings: account.totalRatings,
+        ridesCompleted: account.ridesCompleted,
+        walletBalance: account.walletBalance,
+        isVerified: account.isVerified,
+        profilePicture: account.profilePicture,
         driverProfile: driverProfile
       }
     })
+  );
+});
+
+/**
+ * Forgot/Reset password (unauthenticated)
+ * POST /api/auth/forgot-password
+ * Body: { username, email, newPassword }
+ */
+const forgotPassword = asyncHandler(async (req, res) => {
+  const { username, email, newPassword } = req.body;
+
+  // Normalize inputs
+  const normEmail = (email || '').trim().toLowerCase();
+  const uname = (username || '').trim();
+  const phoneCandidate = uname.replace(/\D/g, '');
+
+  // Helper to escape regex special chars
+  const escapeRegExp = (s = '') => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const namePattern = uname ? new RegExp(`^${escapeRegExp(uname)}$`, 'i') : null;
+
+  const findAccount = async () => {
+    let doc = null;
+
+    // Prefer exact email + (name OR phone) if provided
+    if (normEmail && uname) {
+      // Driver first: email + name
+      doc = await Driver.findOne({ email: normEmail, name: namePattern }).select('+password');
+      if (doc) return { doc, model: 'driver' };
+      // Then rider: email + name
+      doc = await User.findOne({ email: normEmail, name: namePattern }).select('+password');
+      if (doc) return { doc, model: 'rider' };
+      // If username looks like phone: email + phone
+      if (phoneCandidate && phoneCandidate.length === 10) {
+        doc = await Driver.findOne({ email: normEmail, phone: phoneCandidate }).select('+password');
+        if (doc) return { doc, model: 'driver' };
+        doc = await User.findOne({ email: normEmail, phone: phoneCandidate }).select('+password');
+        if (doc) return { doc, model: 'rider' };
+      }
+    }
+
+    // Email-only fallback
+    if (normEmail) {
+      doc = await Driver.findOne({ email: normEmail }).select('+password');
+      if (doc) return { doc, model: 'driver' };
+      doc = await User.findOne({ email: normEmail }).select('+password');
+      if (doc) return { doc, model: 'rider' };
+    }
+
+    // Phone-only fallback if username is 10-digit phone
+    if (phoneCandidate && phoneCandidate.length === 10) {
+      doc = await Driver.findOne({ phone: phoneCandidate }).select('+password');
+      if (doc) return { doc, model: 'driver' };
+      doc = await User.findOne({ phone: phoneCandidate }).select('+password');
+      if (doc) return { doc, model: 'rider' };
+    }
+
+    return null;
+  };
+
+  const found = await findAccount();
+  if (!found || !found.doc) {
+    return res.status(404).json(
+      formatError('User not found with provided email and username', 404)
+    );
+  }
+
+  // Set new password (will be hashed by pre-save hook)
+  found.doc.password = newPassword;
+  await found.doc.save();
+
+  return res.json(
+    formatSuccess('Password reset successful. Please login with your new password.')
   );
 });
 
@@ -192,40 +257,56 @@ const getProfile = asyncHandler(async (req, res) => {
 const updateProfile = asyncHandler(async (req, res) => {
   const { name, phone, email, profilePicture } = req.body;
 
-  const user = await User.findById(req.userId);
+  const role = req.userRole || req.user?.role;
+  let accountModel = role === 'driver' ? Driver : User;
+  let account = await accountModel.findById(req.userId).select('+password');
 
-  if (!user) {
-    return res.status(404).json(
-      formatError('User not found', 404)
-    );
+  if (!account) {
+    return res.status(404).json(formatError('User not found', 404));
   }
 
-  // Update fields
-  if (name) user.name = name;
-  if (phone) user.phone = phone;
+  // Uniqueness checks for email/phone if provided and changed
+  if (email && email !== account.email) {
+    const exists = await accountModel.findOne({ email });
+    if (exists) {
+      return res.status(400).json(formatError('Email already in use', 400));
+    }
+    account.email = email;
+  }
+  if (phone && phone !== account.phone) {
+    const exists = await accountModel.findOne({ phone });
+    if (exists) {
+      return res.status(400).json(formatError('Phone already in use', 400));
+    }
+    account.phone = phone;
+  }
+
+  if (name) account.name = name;
+  if (phone) account.phone = phone;
+
   // Allow updating email with uniqueness check
-  if (email && email !== user.email) {
+  if (email && email !== account.email) {
     const exists = await User.findOne({ email });
     if (exists) {
       return res.status(400).json(
         formatError('Email already in use', 400)
       );
     }
-    user.email = email;
+    account.email = email;
   }
-  if (profilePicture) user.profilePicture = profilePicture;
+  if (profilePicture) account.profilePicture = profilePicture;
 
-  await user.save();
+  await account.save();
 
   res.json(
     formatSuccess('Profile updated successfully', {
       user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        profilePicture: user.profilePicture
+        id: account._id,
+        name: account.name,
+        email: account.email,
+        phone: account.phone,
+        role: account.role,
+        profilePicture: account.profilePicture
       }
     })
   );
@@ -263,37 +344,212 @@ const deleteAccount = asyncHandler(async (req, res) => {
 const changePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
 
-  const user = await User.findById(req.userId).select('+password');
+  const role = req.userRole || req.user?.role;
+  let accountModel = role === 'driver' ? Driver : User;
+  const account = await accountModel.findById(req.userId).select('+password');
 
-  if (!user) {
-    return res.status(404).json(
-      formatError('User not found', 404)
-    );
+  if (!account) {
+    return res.status(404).json(formatError('User not found', 404));
   }
 
   // Verify current password
-  const isPasswordValid = await user.comparePassword(currentPassword);
-
+  const isPasswordValid = await account.comparePassword(currentPassword);
   if (!isPasswordValid) {
-    return res.status(401).json(
-      formatError('Current password is incorrect', 401)
+    return res.status(401).json(formatError('Current password is incorrect', 401));
+  }
+
+  // Update password (hashed by pre-save hook)
+  account.password = newPassword;
+  await account.save();
+
+  res.json(formatSuccess('Password changed successfully'));
+});
+
+/**
+ * Register new driver
+ * POST /api/auth/register-driver
+ */
+const registerDriver = asyncHandler(async (req, res) => {
+  const {
+    name, email, phone, password,
+    vehicleType, vehicleNumber, vehicleModel, vehicleColor,
+    licenseNumber, licenseExpiry
+  } = req.body;
+
+  // Normalize inputs
+  const normEmail = (email || '').trim().toLowerCase();
+  const normPhone = (phone || '').replace(/\D/g, '');
+  const normVehicleNumber = (vehicleNumber || '').trim().toUpperCase();
+  const normLicenseNumber = (licenseNumber || '').trim().toUpperCase();
+
+  // Check existing by email/phone in drivers
+  const existingByContact = await Driver.findOne({ $or: [{ email: normEmail }, { phone: normPhone }] });
+  if (existingByContact) {
+    return res.status(400).json(
+      formatError('Driver with this email or phone already exists', 400)
     );
   }
 
-  // Update password
-  user.password = newPassword;
-  await user.save();
+  // Proactive checks for unique vehicle fields to return clean 400s instead of E11000
+  const dupVehicle = await Driver.findOne({ $or: [ { vehicleNumber: normVehicleNumber }, { licenseNumber: normLicenseNumber } ] });
+  if (dupVehicle) {
+    const conflicts = [];
+    if (dupVehicle.vehicleNumber === normVehicleNumber) conflicts.push('vehicleNumber');
+    if (dupVehicle.licenseNumber === normLicenseNumber) conflicts.push('licenseNumber');
+    return res.status(400).json(
+      formatError(`Driver with this ${conflicts.join(' and ')} already exists`, 400)
+    );
+  }
 
-  res.json(
-    formatSuccess('Password changed successfully')
+  // Validate required vehicle/license fields
+  if (!vehicleType || !vehicleNumber || !vehicleModel || !licenseNumber || !licenseExpiry) {
+    return res.status(400).json(
+      formatError('Driver registration requires vehicle and license details', 400)
+    );
+  }
+
+  // Create driver (auth + profile)
+  const driverUser = await Driver.create({
+    name,
+    email: normEmail,
+    phone: normPhone,
+    password,
+    role: 'driver',
+    vehicleType,
+    vehicleNumber: normVehicleNumber,
+    vehicleModel,
+    vehicleColor,
+    licenseNumber: normLicenseNumber,
+    licenseExpiry
+  });
+
+  const token = generateToken(driverUser._id, 'driver');
+  res.status(201).json(
+    formatSuccess('Driver registered successfully', {
+      user: {
+        id: driverUser._id,
+        name: driverUser.name,
+        email: driverUser.email,
+        phone: driverUser.phone,
+        role: driverUser.role
+      },
+      token
+    })
   );
+});
+
+/**
+ * Login driver
+ * POST /api/auth/login-driver
+ */
+const loginDriver = asyncHandler(async (req, res) => {
+  const { email, phone, password } = req.body;
+
+  if ((!email && !phone) || !password) {
+    return res.status(400).json(formatError('Email or phone and password are required', 400));
+  }
+
+  const normEmail = (email || '').trim().toLowerCase();
+  const normPhone = (phone || '').replace(/\D/g, '');
+
+  // Prefer driver docs that actually have a password set (avoid legacy/partial docs)
+  const match = { $or: [{ email: normEmail }, { phone: normPhone }] };
+  let user = await Driver.findOne({
+    $and: [
+      match,
+      { password: { $exists: true, $type: 'string' } }
+    ]
+  }).select('+password');
+
+  // Fallback to any matching doc (if none with password found)
+  if (!user) {
+    user = await Driver.findOne(match).select('+password');
+  }
+
+  if (!user) {
+    return res.status(401).json(formatError('Invalid credentials', 401));
+  }
+  if (!user.isActive) {
+    return res.status(401).json(formatError('Account is deactivated', 401));
+  }
+  if (!user.password) {
+    // Legacy/partial record without password
+    return res.status(401).json(formatError('Invalid credentials', 401));
+  }
+
+  const ok = await user.comparePassword(password);
+  if (!ok) {
+    return res.status(401).json(formatError('Invalid credentials', 401));
+  }
+
+  const token = generateToken(user._id, 'driver');
+  const driverProfile = {
+    vehicleType: user.vehicleType,
+    vehicleNumber: user.vehicleNumber,
+    vehicleModel: user.vehicleModel,
+    vehicleColor: user.vehicleColor,
+    licenseNumber: user.licenseNumber,
+    licenseExpiry: user.licenseExpiry,
+    kycStatus: user.kycStatus
+  };
+
+  return res.json(formatSuccess('Login successful', {
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      rating: user.rating,
+      ridesCompleted: user.ridesCompleted,
+      driverProfile
+    },
+    token
+  }));
+});
+
+/**
+ * Delete current account
+ * DELETE /api/auth/account
+ */
+const deleteAccount = asyncHandler(async (req, res) => {
+  const role = req.userRole || req.user?.role;
+
+  if (role === 'driver') {
+    // Block deletion if there is an active ride
+    const driverProfile = await require('../models/Driver').findById(req.userId);
+    if (driverProfile?.currentRide) {
+      return res.status(400).json(formatError('Cannot delete account while a ride is active', 400));
+    }
+
+    // Safe to delete: remove driver profile then account
+    if (driverProfile) {
+      await driverProfile.deleteOne();
+    }
+    // Account is the same document now; nothing else to delete
+  } else {
+    // Rider: block if there is any active ride
+    const activeRide = await require('../models/Ride').findOne({
+      rider: req.userId,
+      status: { $in: ['requested', 'accepted', 'driver-arrived', 'in-progress'] }
+    });
+    if (activeRide) {
+      return res.status(400).json(formatError('Cannot delete account while a ride is active', 400));
+    }
+    await User.findByIdAndDelete(req.userId);
+  }
+
+  return res.json(formatSuccess('Account deleted successfully'));
 });
 
 module.exports = {
   register,
   login,
+  registerDriver,
+  loginDriver,
   getProfile,
   updateProfile,
   changePassword,
+  forgotPassword,
   deleteAccount
 };

@@ -44,25 +44,54 @@ export const AuthProvider = ({ children }) => {
   }
 
   const login = async (email, password) => {
-    try {
-      const response = await api.login({ email, password })
+    // Normalize input similar to backend normalization
+    const normEmail = (email || '').trim().toLowerCase()
+    const payload = { email: normEmail, password }
+
+    const attempt = async (fn) => {
+      const response = await fn(payload)
       const { token: t, user: u } = response.data.data
       setToken(t)
       setUser(u)
       localStorage.setItem('token', t)
       client.defaults.headers.common['Authorization'] = `Bearer ${t}`
-      return { success: true }
-    } catch (error) {
-      return { 
-        success: false, 
-        message: error.response?.data?.message || error.message || 'Login failed' 
+      return { success: true, role: u?.role }
+    }
+
+    try {
+      return await attempt(api.login)
+    } catch (err) {
+      const status = err?.response?.status
+      const msg = err?.response?.data?.message || err.message
+      // Fallback to driver on any auth failure (401) from rider login
+      if (status === 401) {
+        try {
+          return await attempt(api.loginDriver)
+        } catch (driverErr) {
+          return {
+            success: false,
+            message: driverErr?.response?.data?.message || driverErr.message || 'Login failed'
+          }
+        }
       }
+      return { success: false, message: msg || 'Login failed' }
     }
   }
 
   const register = async (userData) => {
     try {
-      const response = await api.register(userData)
+      // Normalize phone to 10 digits without symbols/spaces
+      if (userData?.phone) {
+        userData.phone = (userData.phone || '').replace(/\D/g, '')
+      }
+
+      let response
+      if (userData?.role === 'driver') {
+        response = await api.registerDriver(userData)
+      } else {
+        response = await api.register(userData)
+      }
+
       const { token: t, user: u } = response.data.data
       setToken(t)
       setUser(u)
