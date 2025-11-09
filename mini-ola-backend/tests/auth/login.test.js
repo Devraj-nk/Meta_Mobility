@@ -14,20 +14,24 @@ describe('POST /api/auth/login (rider)', () => {
   afterAll(async () => { await close(); });
 
   test('logs in with email + password', async () => {
-    await User.create({
-      name: 'R1', email: 'r1@example.com', phone: '9999999990',
-      password: 'password123', role: 'rider'
-    });
-
-    const res = await request(app)
-      .post('/api/auth/login')
-      .send({ email: 'r1@example.com', password: 'password123' });
-
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data.token).toBeDefined();
-    expect(res.body.data.user.role).toBe('rider');
+  await User.create({
+    name: 'R1', email: 'r1@example.com', phone: '9999999990',
+    password: 'password123', role: 'rider'
   });
+
+  const res = await request(app)
+    .post('/api/auth/login')
+    .send({ email: 'r1@example.com', password: 'password123' });
+
+  expect(res.status).toBe(200);
+  expect(res.body.success).toBe(true);
+
+  // updated to match new response shape (accessToken + refreshToken)
+  expect(res.body.data).toBeDefined();
+  expect(res.body.data.accessToken).toBeDefined();
+  expect(res.body.data.refreshToken).toBeDefined();
+  expect(res.body.data.user.role).toBe('rider');
+});
 
   test('rejects invalid password', async () => {
     await User.create({
