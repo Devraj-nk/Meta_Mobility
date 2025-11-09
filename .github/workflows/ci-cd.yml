@@ -4,104 +4,207 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
+
+env:
+  COVERAGE_THRESHOLD: 75
 
 jobs:
-  backend:
-    name: Backend Build & Test
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: mini-ola-backend
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-      - name: Install deps (backend)
-        run: npm ci
-      - name: Lint (skip if no lint script)
-        run: |
-          if npm run | grep -q "lint"; then
-            npm run lint || echo "No backend lint configured"
-          else
-            echo "No lint script"
-          fi
-      - name: Run Unit+Integration Tests with Coverage
-        env:
-          NODE_ENV: test
-        run: npm test -- --coverage
-      - name: Upload coverage (backend)
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-coverage
-          path: mini-ola-backend/coverage
-      - name: Security Audit
-        run: npm audit --audit-level=high || echo "Audit issues found"
-
-  frontend:
-    name: Frontend Build & Lint
+  build:
+    name: Build (frontend)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: mini-ola-frontend
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
-      - name: Install deps (frontend)
+
+      - name: Install frontend deps
         run: npm ci
-      - name: Lint frontend
+
+      - name: Lint frontend (if configured)
         run: |
           if npm run | grep -q "lint"; then
-            npm run lint || echo "Frontend lint errors"
+            npm run lint || echo "Frontend lint issues (non-fatal in build)"
           else
-            echo "No lint script"
+            echo "No frontend lint script"
           fi
+
       - name: Build frontend
         run: npm run build
+
       - name: Upload frontend build artifact
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
           path: mini-ola-frontend/dist
 
-  aggregate:
-    name: Aggregate & Quality Gates
+  test:
+    name: Test (backend)
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
+    defaults:
+      run:
+        working-directory: mini-ola-backend
+    needs: build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install backend deps
+        run: npm ci
+
+      - name: Lint backend (if configured)
+        run: |
+          if npm run | grep -q "lint"; then
+            npm run lint || echo "Backend lint issues (non-fatal in tests)"
+          else
+            echo "No backend lint script"
+          fi
+
+      - name: Run Unit+Integration Tests with Coverage
+        env:
+          NODE_ENV: test
+        run: npm test -- --coverage --coverageDirectory=coverage
+
+      - name: Upload backend coverage
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: mini-ola-backend/coverage
+
+  coverage:
+    name: Coverage enforcement
+    runs-on: ubuntu-latest
+    needs: test
     steps:
       - name: Download backend coverage
         uses: actions/download-artifact@v4
         with:
           name: backend-coverage
           path: backend-coverage
-      - name: Download frontend artifact
+
+      - name: Enforce coverage threshold
+        run: |
+          node -e "
+          const fs = require('fs');
+          const p = 'backend-coverage/coverage-summary.json';
+          if (!fs.existsSync(p)) { console.error('coverage-summary.json not found'); process.exit(1); }
+          const c = JSON.parse(fs.readFileSync(p, 'utf8'));
+          const pct = c.total && c.total.lines && c.total.lines.pct;
+          console.log('Lines coverage:', pct);
+          const threshold = Number(process.env.COVERAGE_THRESHOLD || 75);
+          if (typeof pct !== 'number') { console.error('Unable to read coverage percentage'); process.exit(1); }
+          if (pct < threshold) { console.error(\`Coverage ${pct}% < threshold ${threshold}%\`); process.exit(1); }
+          console.log(\`Coverage OK: ${pct}% >= ${threshold}%\`);
+          "
+
+  lint:
+    name: Lint (aggregate)
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Lint backend (strict)
+        working-directory: mini-ola-backend
+        run: |
+          if npm run | grep -q "lint"; then
+            npm run lint
+          else
+            echo "No backend lint script"
+          fi
+
+      - name: Lint frontend (strict)
+        working-directory: mini-ola-frontend
+        run: |
+          if npm run | grep -q "lint"; then
+            npm run lint
+          else
+            echo "No frontend lint script"
+          fi
+
+  security:
+    name: Security Checks
+    runs-on: ubuntu-latest
+    needs: [test, lint]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install backend deps (audit)
+        working-directory: mini-ola-backend
+        run: npm ci
+
+      - name: Run npm audit (backend)
+        working-directory: mini-ola-backend
+        run: |
+          npm audit --audit-level=high || echo "High/severe audit issues found (review output)"
+
+      - name: Install frontend deps (audit)
+        working-directory: mini-ola-frontend
+        run: npm ci
+
+      - name: Run npm audit (frontend)
+        working-directory: mini-ola-frontend
+        run: |
+          npm audit --audit-level=high || echo "High/severe audit issues found (review output)"
+
+  package:
+    name: Package Deployment Artifact
+    runs-on: ubuntu-latest
+    needs: [coverage, security]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Download frontend build
         uses: actions/download-artifact@v4
         with:
           name: frontend-dist
           path: frontend-dist
-      - name: Summarize coverage
-        run: |
-          if [ -f backend-coverage/lcov.info ]; then
-            echo "Backend coverage summary:"; grep -A2 SF: backend-coverage/lcov.info | head -n 30 || true
-          else
-            echo "No backend coverage file found"
-          fi
-      - name: Prepare deployment artifact
+
+      - name: Download backend coverage (optional)
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend-coverage
+
+      - name: Create deploy folder
         run: |
           mkdir -p deploy
-          cp -r frontend-dist deploy/frontend
+          cp -r frontend-dist deploy/frontend || true
           cp -r backend-coverage deploy/backend-coverage || true
-          echo "Generated combined artifact"
+          tar -czf deploy/backend-src.tar.gz mini-ola-backend || true
+          echo "Prepared deploy artifact"
+
       - name: Upload deployment artifact
         uses: actions/upload-artifact@v4
         with:
@@ -109,9 +212,9 @@ jobs:
           path: deploy
 
   deploy:
-    name: Deploy (Main Branch Only)
+    name: Deploy (main only placeholder)
     if: github.ref == 'refs/heads/main'
-    needs: aggregate
+    needs: package
     runs-on: ubuntu-latest
     steps:
       - name: Download deployment artifact
@@ -119,5 +222,8 @@ jobs:
         with:
           name: full-stack-artifact
           path: full-stack-artifact
+
       - name: Placeholder deploy step
-        run: echo "Deploying artifact..." && ls -R full-stack-artifact
+        run: |
+          echo "Deploying artifact..."
+          ls -R full-stack-artifact
