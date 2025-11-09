@@ -35,46 +35,43 @@ const Profile = () => {
   console.log('User role:', user?.role)
 
   const handleMenuClick = (path) => {
-// Navigate directly for implemented driver routes
-  if (
-    path === '/driver/history' ||
-    path === '/driver/documents' ||
-    path === '/driver/account' ||
-    path === '/driver/bank'
-  ) {
-    navigate(path)
-    return
-  }
+    // Navigate directly for implemented driver routes
+    if (
+      path === '/driver/history' ||
+      path === '/driver/documents' ||
+      path === '/driver/account' ||
+      path === '/driver/bank'
+    ) {
+      navigate(path)
+      return
+    }
 
-  // Existing shortcuts and general pages
-  if (path === '/rides' || path === '/driver/trips') {
-    navigate(user?.role === 'driver' ? '/driver/dashboard' : '/rider/dashboard')
-    return
-  }
+    // Existing shortcuts and general pages
+    if (path === '/rides' || path === '/driver/trips') {
+      navigate(user?.role === 'driver' ? '/driver/dashboard' : '/rider/dashboard')
+      return
+    }
 
-  if (path === '/safety') {
-    navigate('/safety')
-    return
-  }
+    if (path === '/safety') {
+      navigate('/safety')
+      return
+    }
 
-  if (path === '/help') {
-    navigate('/help')
-    return
-  }
+    if (path === '/help') {
+      navigate('/help')
+      return
+    }
 
-  if (path === '/settings') {
-    navigate('/settings')
-    return
-  }
+    if (path === '/settings') {
+      navigate('/settings')
+      return
+    }
 
-  if (path === '/payment' || path === '/driver/bank') {
-    navigate(path)
-    return
-  }
+    if (path === '/payment' || path === '/driver/bank') {
+      navigate(path)
+      return
+    }
 
-    alert('Payment/Bank section - Coming soon!')
-    return
-  }
     // Default placeholder
     alert(`${path} - Coming soon!`)
   }

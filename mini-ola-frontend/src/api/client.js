@@ -7,19 +7,69 @@ const client = axios.create({
   timeout: 15000,
 })
 
-// Attach auth token from localStorage if present
+// Attach auth token from localStorage if present (prefer new key, fallback legacy)
 client.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+  const accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token')
+  if (accessToken) {
+    config.headers.Authorization = `Bearer ${accessToken}`
   }
   return config
 })
 
 // Normalize error shape
+let isRefreshing = false
+let pendingRequests = []
+
 client.interceptors.response.use(
   (res) => res,
-  (error) => {
+  async (error) => {
+    const original = error.config || {}
+    const status = error?.response?.status
+
+    // Try refresh once on 401
+    if (status === 401 && !original._retry) {
+      original._retry = true
+      const refreshToken = localStorage.getItem('refreshToken')
+      if (!refreshToken) {
+        // No refresh token; bubble up
+        const message = error?.response?.data?.message || error.message || 'Unauthorized'
+        return Promise.reject({ ...error, message, response: error.response })
+      }
+
+      try {
+        if (isRefreshing) {
+          // queue
+          return new Promise((resolve, reject) => {
+            pendingRequests.push({ resolve, reject, original })
+          })
+        }
+        isRefreshing = true
+        const r = await axios.post('/api/auth/refresh', { refreshToken })
+        const { accessToken: newAT, refreshToken: newRT } = r.data?.data || {}
+        if (newAT) {
+          localStorage.setItem('accessToken', newAT)
+          if (newRT) localStorage.setItem('refreshToken', newRT)
+          original.headers = original.headers || {}
+          original.headers.Authorization = `Bearer ${newAT}`
+          // retry queued
+          pendingRequests.forEach(({ resolve }) => resolve(client(original)))
+          pendingRequests = []
+          return client(original)
+        }
+        throw new Error('No access token from refresh')
+      } catch (e) {
+        pendingRequests.forEach(({ reject }) => reject(e))
+        pendingRequests = []
+        // Clear tokens on failed refresh
+        localStorage.removeItem('accessToken')
+        localStorage.removeItem('refreshToken')
+        const message = error?.response?.data?.message || error.message || 'Unauthorized'
+        return Promise.reject({ ...error, message, response: error.response })
+      } finally {
+        isRefreshing = false
+      }
+    }
+
     const message = error?.response?.data?.message || error.message || 'Request failed'
     return Promise.reject({ ...error, message, response: error.response })
   }
@@ -34,6 +84,8 @@ export const api = {
   register: (payload) => client.post('/auth/register', payload),
   registerDriver: (payload) => client.post('/auth/register-driver', payload),
   loginDriver: (payload) => client.post('/auth/login-driver', payload),
+  refresh: (payload) => client.post('/auth/refresh', payload),
+  logoutToken: (payload) => client.post('/auth/logout', payload),
   profile: () => client.get('/auth/profile'),
   updateProfile: (payload) => client.put('/auth/profile', payload),
   changePassword: (payload) => client.put('/auth/change-password', payload),
@@ -43,6 +95,7 @@ export const api = {
   // Rider
   fareEstimate: (payload) => client.post('/rides/estimate', payload),
   requestRide: (payload) => client.post('/rides/request', payload),
+  selectDriver: (rideId, payload) => client.put(`/rides/${rideId}/select-driver`, payload),
   activeRide: () => client.get('/rides/active'),
   rideHistory: (params) => client.get('/rides/history', { params }),
   rideDetails: (id) => client.get(`/rides/${id}`),

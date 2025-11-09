@@ -8,7 +8,8 @@ const { asyncHandler } = require('../middleware/errorHandler');
  * GET /api/drivers/ride-requests
  */
 const getNearbyRideRequests = asyncHandler(async (req, res) => {
-  const driver = await Driver.findOne({ user: req.userId });
+  // Use driver id from auth; driver documents are separate from users
+  const driver = await Driver.findById(req.userId);
 
   if (!driver) {
     return res.status(404).json(formatError('Driver profile not found', 404));
@@ -23,9 +24,10 @@ const getNearbyRideRequests = asyncHandler(async (req, res) => {
     return res.json(formatSuccess('Driver location not set', { requests: [] }));
   }
 
-  // Find requested rides within 5km of driver location
-  // Optionally match by vehicle type (simple mapping: rideType === vehicleType)
-  const filter = {
+  // Build query for two cases:
+  // 1) Generic: requested rides within 5km and matching vehicle type
+  // 2) Targeted: rides where rider pre-selected THIS driver (status=driver-selected)
+  const genericFilter = {
     status: 'requested',
     rideType: driver.vehicleType,
     pickupLocation: {
@@ -35,13 +37,61 @@ const getNearbyRideRequests = asyncHandler(async (req, res) => {
       }
     }
   };
+  const targetedFilter = { status: 'driver-selected', driver: driver._id };
 
-  const requests = await Ride.find(filter)
-    .sort({ createdAt: -1 })
-    .limit(10)
-    .populate('rider', 'name phone rating');
+  let requests = [];
+  try {
+    requests = await Ride.find({ $or: [genericFilter, targetedFilter] })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .populate('rider', 'name phone rating');
+  } catch (err) {
+    // Geospatial query might fail if index not ready; fallback to manual distance
+    const allCandidateRides = await Ride.find({
+      status: { $in: ['requested', 'driver-selected'] },
+      rideType: driver.vehicleType
+    })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .populate('rider', 'name phone rating');
 
-  return res.json(formatSuccess('Nearby ride requests', { requests }));
+    const toRad = deg => deg * Math.PI / 180;
+    const haversine = (lat1, lon1, lat2, lon2) => {
+      const R = 6371; // km
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    };
+    const dLat = driver.currentLocation.coordinates[1];
+    const dLon = driver.currentLocation.coordinates[0];
+    requests = allCandidateRides.filter(r => {
+      if (r.status === 'driver-selected' && String(r.driver) !== String(driver._id)) return false;
+      const coords = r.pickupLocation?.coordinates;
+      if (!coords || coords.length !== 2) return false;
+      const dist = haversine(coords[1], coords[0], dLat, dLon); // km
+      return dist <= 5; // within 5km
+    }).slice(0, 10);
+  }
+
+  // Filter and cleanup expired 'driver-selected' requests (>4 min without acceptance)
+  const timeoutMs = 4 * 60 * 1000;
+  const now = Date.now();
+  const filtered = [];
+  for (const r of requests) {
+    if (r.status === 'driver-selected' && r.driverSelectedAt) {
+      const elapsed = now - new Date(r.driverSelectedAt).getTime();
+      if (elapsed > timeoutMs) {
+        // auto-cancel expired selection
+        await r.cancelRide('Driver did not accept within 4 minutes', 'system');
+        continue;
+      }
+    }
+    filtered.push(r);
+  }
+
+  return res.json(formatSuccess('Nearby ride requests', { requests: filtered }));
 });
 
 /**
@@ -72,8 +122,10 @@ const toggleAvailability = asyncHandler(async (req, res) => {
     );
   }
 
-  // Update availability
-  driver.isAvailable = isAvailable;
+  // Update availability only if provided explicitly
+  if (typeof isAvailable === 'boolean') {
+    driver.isAvailable = isAvailable;
+  }
 
   // Update location if provided
   if (latitude && longitude) {
@@ -175,37 +227,47 @@ const acceptRide = asyncHandler(async (req, res) => {
   }
 
   // First check ride state to provide precise error messages
-  const rideDoc = await Ride.findById(id).select('status driver otp');
+  const rideDoc = await Ride.findById(id).select('status driver otp preferredDriver driverSelectedAt');
   if (!rideDoc) {
     return res.status(404).json(formatError('Ride not found', 404));
   }
-
-  // If already accepted/assigned by someone else
-  if (rideDoc.status !== 'requested' || rideDoc.driver) {
-    return res.status(409).json(
-      formatError('Ride already accepted', 409)
-    );
+  
+  // OTP required
+  if (!otp) {
+    return res.status(400).json(formatError('OTP is required to accept the ride', 400));
   }
-
-  // OTP mismatch
   if (String(otp) !== String(rideDoc.otp)) {
-    return res.status(400).json(
-      formatError('Invalid OTP', 400)
-    );
+    return res.status(400).json(formatError('Invalid OTP', 400));
   }
 
-  // Atomically assign the ride ensuring it's still unassigned (race-safe)
-  const ride = await Ride.findOneAndUpdate(
-    { _id: id, status: 'requested', driver: null },
-    { $set: { driver: req.userId, status: 'accepted', otpVerified: true } },
-    { new: true }
-  );
+  let query;
+  let update;
+  if (rideDoc.status === 'requested' && !rideDoc.driver) {
+    // normal case: unassigned
+    query = { _id: id, status: 'requested', driver: null };
+    update = { $set: { driver: req.userId, status: 'accepted', otpVerified: true } };
+  } else if (rideDoc.status === 'driver-selected' && String(rideDoc.driver) === String(req.userId)) {
+    // Check timeout before accepting
+    const timeoutMs = 4 * 60 * 1000;
+    if (rideDoc.driverSelectedAt && (Date.now() - new Date(rideDoc.driverSelectedAt).getTime()) > timeoutMs) {
+      // Cancel ride; tell driver it's expired
+      const expired = await Ride.findById(id);
+      if (expired) {
+        await expired.cancelRide('Driver did not accept within 4 minutes', 'system');
+      }
+      return res.status(409).json(formatError('Ride offer expired due to timeout', 409));
+    }
+    // rider pre-selected this driver
+    query = { _id: id, status: 'driver-selected', driver: req.userId };
+    update = { $set: { status: 'accepted', otpVerified: true } };
+  } else {
+    return res.status(409).json(formatError('Ride already accepted or assigned to another driver', 409));
+  }
 
+  // Atomically update
+  const ride = await Ride.findOneAndUpdate(query, update, { new: true });
   if (!ride) {
-    // Another driver accepted between the checks and this update
-    return res.status(409).json(
-      formatError('Ride already accepted', 409)
-    );
+    return res.status(409).json(formatError('Ride already accepted', 409));
   }
 
   // Update driver
@@ -242,13 +304,18 @@ const rejectRide = asyncHandler(async (req, res) => {
     );
   }
 
-  // In real app, would reassign to another driver
-  // For now, just cancel the ride
-  await ride.cancelRide(reason || 'Rejected by driver', 'driver');
-
-  res.json(
-    formatSuccess('Ride rejected', { ride })
-  );
+  if (ride.status === 'driver-selected') {
+    // Return to pool for other drivers
+    ride.driver = null;
+    ride.preferredDriver = null;
+    ride.status = 'requested';
+    await ride.save();
+    return res.json(formatSuccess('Ride returned to queue', { ride }));
+  } else {
+    // If already accepted/in-progress, treat as cancel by driver
+    await ride.cancelRide(reason || 'Rejected by driver', 'driver');
+    return res.json(formatSuccess('Ride rejected', { ride }));
+  }
 });
 
 /**
@@ -758,5 +825,5 @@ module.exports = {
       })
     );
   })
-  getNearbyRideRequests
+  ,getNearbyRideRequests
 };

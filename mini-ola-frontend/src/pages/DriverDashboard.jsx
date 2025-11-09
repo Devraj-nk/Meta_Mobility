@@ -8,6 +8,7 @@ const DriverDashboard = () => {
   const { user, isAuthenticated } = useAuth()
   const navigate = useNavigate()
   const [driverProfile, setDriverProfile] = useState(null)
+  const [kpis, setKpis] = useState({ earnings: 0, rides: 0, acceptanceRate: 0 })
   const [loading, setLoading] = useState(true)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [currentLocation, setCurrentLocation] = useState(null)
@@ -107,6 +108,48 @@ const DriverDashboard = () => {
       setLoading(false)
     }
   }
+
+  // Fetch ride history to compute KPIs (only completed & paid rides contribute to earnings, rides)
+  const computeKPIs = async () => {
+    try {
+      // Page through history respecting API limit (max 100)
+      const limit = 100
+      let page = 1
+      let totalPages = 1
+      const all = []
+      do {
+        const historyRes = await api.rideHistory({ page, limit })
+        const data = historyRes.data?.data
+        const ridesPage = Array.isArray(data?.rides) ? data.rides : Array.isArray(data) ? data : []
+        totalPages = data?.totalPages || 1
+        all.push(...ridesPage)
+        page += 1
+      } while (page <= totalPages && page <= 5) // cap to 5 pages for performance
+
+      const rides = all
+      const paidCompleted = rides.filter(r => r.status === 'completed' && r.paymentStatus === 'completed')
+      const earnings = paidCompleted.reduce((sum, r) => {
+        const fare = Number(r.fare?.finalFare ?? r.fare?.estimatedFare ?? 0) || 0
+        return sum + fare
+      }, 0)
+      const completedCount = paidCompleted.length
+
+      // Acceptance rate heuristic
+      const accepted = rides.filter(r => ['accepted','driver-arrived','in-progress','completed'].includes(r.status)).length
+      const offers = rides.filter(r => ['requested','driver-selected','cancelled','accepted','driver-arrived','in-progress','completed'].includes(r.status)).length
+      const acceptanceRate = offers > 0 ? Math.round((accepted / offers) * 100) : 100
+
+      setKpis({ earnings, rides: completedCount, acceptanceRate })
+    } catch (e) {
+      // silent fail; keep previous KPIs
+    }
+  }
+
+  useEffect(() => {
+    if (isAuthenticated && user?.role === 'driver') {
+      computeKPIs()
+    }
+  }, [isAuthenticated, user])
 
   const handleUpdateVehicle = async () => {
     try {
@@ -561,9 +604,7 @@ const DriverDashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">Total Earnings</p>
-                  <p className="text-2xl font-bold text-primary-600">
-                    ₹{driverProfile?.totalEarnings?.toFixed(2) || '0.00'}
-                  </p>
+                  <p className="text-2xl font-bold text-primary-600">₹{kpis.earnings.toFixed(2)}</p>
                 </div>
                 <DollarSign className="h-12 w-12 text-primary-200" />
               </div>
@@ -573,9 +614,7 @@ const DriverDashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">Total Rides</p>
-                  <p className="text-2xl font-bold text-blue-600">
-                    {driverProfile?.totalRides || 0}
-                  </p>
+                  <p className="text-2xl font-bold text-blue-600">{kpis.rides}</p>
                 </div>
                 <CheckCircle className="h-12 w-12 text-blue-200" />
               </div>
@@ -585,9 +624,7 @@ const DriverDashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">Acceptance Rate</p>
-                  <p className="text-2xl font-bold text-green-600">
-                    {driverProfile?.acceptanceRate || 100}%
-                  </p>
+                  <p className="text-2xl font-bold text-green-600">{kpis.acceptanceRate}%</p>
                 </div>
                 <TrendingUp className="h-12 w-12 text-green-200" />
               </div>
@@ -695,7 +732,7 @@ const DriverDashboard = () => {
         <div className="space-y-6">
           {/* Driver Stats */}
           <div className="card">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Driver Stats</h3>
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Driver Rating</h3>
             <div className="space-y-4">
               <div>
                 <div className="text-sm text-gray-600 mb-2">Rating</div>
@@ -714,24 +751,8 @@ const DriverDashboard = () => {
                       />
                     )
                   })}
-                  <span className="ml-2 text-sm font-semibold text-gray-700">
-                    {rating.toFixed(1)}
-                  </span>
+                  <span className="ml-2 text-sm font-semibold text-gray-700">{rating.toFixed(1)}</span>
                 </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <Award className="h-5 w-5 text-purple-400 mr-2" />
-                  <span className="text-gray-700">Level</span>
-                </div>
-                <span className="font-bold">{driverProfile?.level || 1}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <TrendingUp className="h-5 w-5 text-blue-400 mr-2" />
-                  <span className="text-gray-700">Experience</span>
-                </div>
-                <span className="font-bold">{driverProfile?.experience || 0} XP</span>
               </div>
             </div>
           </div>
@@ -761,8 +782,17 @@ const DriverDashboard = () => {
               >
                 View History
               </button>
-              <button className="w-full btn-secondary text-left">
+              <button
+                className="w-full btn-secondary text-left"
+                onClick={() => navigate('/help')}
+              >
                 Contact Support
+              </button>
+              <button
+                className="w-full btn-secondary text-left"
+                onClick={() => navigate('/safety')}
+              >
+                Safety
               </button>
             </div>
           </div>

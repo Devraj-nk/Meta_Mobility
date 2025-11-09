@@ -58,6 +58,13 @@ router.post(
 );
 
 /**
+ * @route   POST /api/auth/refresh
+ * @desc    Rotate refresh token and issue new access token
+ * @access  Public (token-based)
+ */
+router.post('/refresh', authController.refresh);
+
+/**
  * @route   POST /api/auth/register-driver
  * @desc    Register driver (auth + profile)
  * @access  Public
@@ -96,6 +103,13 @@ router.post(
   validate,
   authController.loginDriver
 );
+
+/**
+ * @route   POST /api/auth/logout
+ * @desc    Revoke refresh token (logout)
+ * @access  Public (token-based)
+ */
+router.post('/logout', authController.logout);
 
 /**
  * @route   GET /api/auth/profile

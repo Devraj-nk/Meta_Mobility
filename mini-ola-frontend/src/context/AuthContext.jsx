@@ -13,18 +13,18 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
-  const [token, setToken] = useState(localStorage.getItem('token'))
+  const [accessToken, setAccessToken] = useState(localStorage.getItem('accessToken') || localStorage.getItem('token'))
+  const [refreshToken, setRefreshToken] = useState(localStorage.getItem('refreshToken'))
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (token) {
-      // Persist token for client instance
-      client.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    if (accessToken) {
+      client.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`
       fetchProfile()
     } else {
       setLoading(false)
     }
-  }, [token])
+  }, [accessToken])
 
   const fetchProfile = async () => {
     try {
@@ -50,11 +50,13 @@ export const AuthProvider = ({ children }) => {
 
     const attempt = async (fn) => {
       const response = await fn(payload)
-      const { token: t, user: u } = response.data.data
-      setToken(t)
+      const { accessToken: at, refreshToken: rt, user: u } = response.data.data
+      setAccessToken(at)
+      setRefreshToken(rt)
       setUser(u)
-      localStorage.setItem('token', t)
-      client.defaults.headers.common['Authorization'] = `Bearer ${t}`
+      localStorage.setItem('accessToken', at)
+      if (rt) localStorage.setItem('refreshToken', rt)
+      client.defaults.headers.common['Authorization'] = `Bearer ${at}`
       return { success: true, role: u?.role }
     }
 
@@ -92,11 +94,13 @@ export const AuthProvider = ({ children }) => {
         response = await api.register(userData)
       }
 
-      const { token: t, user: u } = response.data.data
-      setToken(t)
-      setUser(u)
-      localStorage.setItem('token', t)
-      client.defaults.headers.common['Authorization'] = `Bearer ${t}`
+  const { accessToken: at, refreshToken: rt, user: u } = response.data.data
+  setAccessToken(at)
+  setRefreshToken(rt)
+  setUser(u)
+  localStorage.setItem('accessToken', at)
+  if (rt) localStorage.setItem('refreshToken', rt)
+  client.defaults.headers.common['Authorization'] = `Bearer ${at}`
       return { success: true }
     } catch (error) {
       return { 
@@ -106,10 +110,20 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      if (refreshToken) {
+        await api.logoutToken({ refreshToken })
+      }
+    } catch (e) {
+      // Ignore logout errors
+    }
     setUser(null)
-    setToken(null)
-    localStorage.removeItem('token')
+    setAccessToken(null)
+    setRefreshToken(null)
+    localStorage.removeItem('accessToken')
+    localStorage.removeItem('refreshToken')
+    localStorage.removeItem('token') // legacy cleanup
     delete client.defaults.headers.common['Authorization']
   }
 
@@ -120,13 +134,14 @@ export const AuthProvider = ({ children }) => {
 
   const value = {
     user,
-    token,
+    accessToken,
+    refreshToken,
     loading,
     login,
     register,
     logout,
     refreshProfile,
-    isAuthenticated: !!token,
+    isAuthenticated: !!accessToken,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
