@@ -54,6 +54,22 @@ router.post(
 );
 
 /**
+ * @route   PUT /api/rides/:id/select-driver
+ * @desc    Rider selects a specific driver for the ride
+ * @access  Private (Rider)
+ */
+router.put(
+  '/:id/select-driver',
+  authorize('rider'),
+  sanitizeInput,
+  [
+    body('driverId').notEmpty().isMongoId().withMessage('Valid driverId is required')
+  ],
+  validate,
+  rideController.selectDriver
+);
+
+/**
  * @route   GET /api/rides/active
  * @desc    Get active ride
  * @access  Private (Rider)

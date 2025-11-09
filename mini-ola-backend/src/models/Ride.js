@@ -11,6 +11,11 @@ const rideSchema = new mongoose.Schema({
     ref: 'Driver',
     default: null
   },
+  preferredDriver: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Driver',
+    default: null
+  },
   rideType: {
     type: String,
     enum: ['bike', 'mini', 'sedan', 'suv'],
@@ -70,8 +75,13 @@ const rideSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['requested', 'accepted', 'driver-arrived', 'in-progress', 'completed', 'cancelled'],
+    enum: ['requested', 'driver-selected', 'accepted', 'driver-arrived', 'in-progress', 'completed', 'cancelled'],
     default: 'requested'
+  },
+  // Timestamp when rider selected a specific driver
+  driverSelectedAt: {
+    type: Date,
+    default: null
   },
   fare: {
     estimatedFare: {
