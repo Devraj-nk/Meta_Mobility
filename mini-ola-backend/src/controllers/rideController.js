@@ -240,18 +240,40 @@ const requestRide = asyncHandler(async (req, res) => {
       formatError(errorMessage, 404)
     );
   }
-  // Do NOT auto-assign. Keep as 'requested' and let drivers accept.
-  // Optionally, we could notify nearby drivers via realtime or polling.
-  await ride.save();
+  // Build drivers list for rider selection
+  const toRad = (deg) => deg * Math.PI / 180;
+  const haversine = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // km
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+  const drivers = nearbyDrivers.map(d => {
+    const coords = d.currentLocation?.coordinates || [0,0];
+    const distanceKm = haversine(pickupLat, pickupLng, coords[1] || 0, coords[0] || 0);
+    return {
+      id: d._id,
+      name: d.name,
+      phone: d.phone,
+      rating: d.rating,
+      totalRatings: d.totalRatings,
+      vehicleType: d.vehicleType,
+      vehicleNumber: d.vehicleNumber,
+      distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null
+    };
+  });
 
-  // Populate rider details (driver will be null until accepted)
+  await ride.save();
   await ride.populate('rider', 'name phone rating profilePicture');
 
   res.status(201).json(
     formatSuccess('Ride requested. Waiting for a driver to accept the offer.', {
       ride: ride,
       otp: ride.otp,
-      nearbyDriversCount: nearbyDrivers.length
+      nearbyDriversCount: nearbyDrivers.length,
+      drivers
     })
   );
 });
@@ -311,6 +333,18 @@ const getRideHistory = asyncHandler(async (req, res) => {
 
   const count = await Ride.countDocuments(query);
 
+  // Apply timeout auto-cancel logic for stale driver-selected rides
+  const timeoutMs = 4 * 60 * 1000;
+  const now = Date.now();
+  for (const r of rides) {
+    if (r.status === 'driver-selected' && r.driverSelectedAt) {
+      const elapsed = now - new Date(r.driverSelectedAt).getTime();
+      if (elapsed > timeoutMs) {
+        await r.cancelRide('Driver did not accept within 4 minutes', 'system');
+      }
+    }
+  }
+
   res.json(
     formatSuccess('Ride history retrieved successfully', {
       rides,
@@ -319,6 +353,55 @@ const getRideHistory = asyncHandler(async (req, res) => {
       totalRides: count
     })
   );
+});
+
+/**
+ * Select a specific driver for the ride
+ * PUT /api/rides/:id/select-driver
+ */
+const selectDriver = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { driverId } = req.body;
+
+  const ride = await Ride.findById(id);
+  if (!ride) return res.status(404).json(formatError('Ride not found', 404));
+  if (ride.rider.toString() !== req.userId.toString()) {
+    return res.status(403).json(formatError('Not authorized to modify this ride', 403));
+  }
+  if (!['requested', 'driver-selected'].includes(ride.status)) {
+    return res.status(400).json(formatError('Cannot select driver at this stage', 400));
+  }
+
+  const driver = await Driver.findById(driverId);
+  if (!driver) return res.status(404).json(formatError('Driver not found', 404));
+  if (driver.kycStatus !== 'approved') {
+    return res.status(400).json(formatError('Driver not available (KYC not approved)', 400));
+  }
+  if (!driver.isAvailable || driver.currentRide) {
+    return res.status(409).json(formatError('Driver is not currently available', 409));
+  }
+  if (driver.vehicleType !== ride.rideType) {
+    return res.status(400).json(formatError('Driver vehicle type does not match ride type', 400));
+  }
+
+  ride.driver = driver._id;
+  ride.preferredDriver = driver._id;
+  ride.status = 'driver-selected';
+  ride.driverSelectedAt = new Date();
+  await ride.save();
+
+  return res.json(formatSuccess('Driver selected. Awaiting driver acceptance.', {
+    rideId: ride._id,
+    driver: {
+      id: driver._id,
+      name: driver.name,
+      phone: driver.phone,
+      rating: driver.rating,
+      vehicleType: driver.vehicleType,
+      vehicleNumber: driver.vehicleNumber
+    },
+    otp: ride.otp
+  }));
 });
 
 /**
@@ -431,9 +514,10 @@ const rateRide = asyncHandler(async (req, res) => {
  * GET /api/rides/active
  */
 const getActiveRide = asyncHandler(async (req, res) => {
-  const ride = await Ride.findOne({
+  // Include 'driver-selected'. Also enforce timeout for driver-selected rides (>4 minutes without acceptance).
+  let ride = await Ride.findOne({
     rider: req.userId,
-    status: { $in: ['requested', 'accepted', 'driver-arrived', 'in-progress'] }
+    status: { $in: ['requested', 'driver-selected', 'accepted', 'driver-arrived', 'in-progress'] }
   })
     .populate({ path: 'rider', select: 'name phone rating profilePicture', model: 'User' })
   .populate({ path: 'driver', select: 'name phone rating profilePicture', model: 'Driver' });
@@ -442,6 +526,25 @@ const getActiveRide = asyncHandler(async (req, res) => {
     return res.status(404).json(
       formatError('No active ride found', 404)
     );
+  }
+
+  // Timeout: if driver-selected for >4 minutes without acceptance, cancel automatically
+  if (ride.status === 'driver-selected' && ride.driverSelectedAt) {
+    const elapsedMs = Date.now() - new Date(ride.driverSelectedAt).getTime();
+    const timeoutMs = 4 * 60 * 1000; // 4 minutes
+    if (elapsedMs > timeoutMs) {
+      await ride.cancelRide('Driver did not accept within 4 minutes', 'system');
+      // Release driver if still linked
+      if (ride.driver) {
+        const driver = await Driver.findById(ride.driver);
+        if (driver && String(driver.currentRide) === String(ride._id)) {
+          driver.currentRide = null;
+          driver.isAvailable = true;
+          await driver.save();
+        }
+      }
+      return res.json(formatSuccess('Ride auto-cancelled due to driver timeout', { ride }));
+    }
   }
 
   res.json(
@@ -456,5 +559,6 @@ module.exports = {
   getRideHistory,
   cancelRide,
   rateRide,
-  getActiveRide
+  getActiveRide,
+  selectDriver
 };

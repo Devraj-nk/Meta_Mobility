@@ -2,6 +2,8 @@ const User = require('../models/User');
 const Driver = require('../models/Driver');
 const { generateToken, formatSuccess, formatError } = require('../utils/helpers');
 const { asyncHandler } = require('../middleware/errorHandler');
+const Ride = require('../models/Ride');
+const tokenService = require('../services/tokenService');
 
 /**
  * Authentication Controller
@@ -40,8 +42,11 @@ const register = asyncHandler(async (req, res) => {
     role: 'rider'
   });
 
-  // Generate token (CAB-SR-003)
-  const token = generateToken(user._id, user.role);
+  // Generate tokens (access + refresh)
+  const { accessToken, refreshToken, expiresIn } = await tokenService.issueTokens(user, {
+    ip: req.ip,
+    userAgent: req.get('user-agent')
+  });
 
   res.status(201).json(
     formatSuccess('User registered successfully', {
@@ -53,7 +58,9 @@ const register = asyncHandler(async (req, res) => {
         role: user.role,
         walletBalance: user.walletBalance
       },
-      token
+      accessToken,
+      refreshToken,
+      expiresIn
     })
   );
 });
@@ -96,8 +103,11 @@ const login = asyncHandler(async (req, res) => {
     );
   }
 
-  // Generate token
-  const token = generateToken(user._id, user.role);
+  // Generate tokens
+  const { accessToken, refreshToken, expiresIn } = await tokenService.issueTokens(user, {
+    ip: req.ip,
+    userAgent: req.get('user-agent')
+  });
 
   // Get driver profile if user is driver
   let driverProfile = null;
@@ -118,7 +128,9 @@ const login = asyncHandler(async (req, res) => {
         ridesCompleted: user.ridesCompleted,
         driverProfile: driverProfile
       },
-      token
+      accessToken,
+      refreshToken,
+      expiresIn
     })
   );
 });
@@ -154,7 +166,8 @@ const getProfile = asyncHandler(async (req, res) => {
       vehicleColor: account.vehicleColor,
       licenseNumber: account.licenseNumber,
       licenseExpiry: account.licenseExpiry,
-      kycStatus: account.kycStatus
+      kycStatus: account.kycStatus,
+      isAvailable: account.isAvailable
     };
   }
 
@@ -312,30 +325,9 @@ const updateProfile = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Delete (deactivate) account for current user
- * DELETE /api/auth/account
- */
-const deleteAccount = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.userId);
-
-  if (!user) {
-    return res.status(404).json(
-      formatError('User not found', 404)
-    );
-  }
-
-  // Soft-delete: deactivate and mask unique fields to free them up
-  user.isActive = false;
-  const uniqueSuffix = `${Date.now()}${user._id.toString().slice(-6)}`;
-  user.email = `deleted+${uniqueSuffix}@example.invalid`;
-  user.phone = `9${uniqueSuffix}`.slice(0, 10); // ensure 10 digits
-  await user.save();
-
-  res.json(
-    formatSuccess('Account deleted successfully')
-  );
-});
+// NOTE: Consolidated deleteAccount implementation appears later in this file.
+// Removed earlier one that only handled User to avoid duplicate declaration and
+// to provide unified behaviour for drivers and riders.
 
 /**
  * Change password
@@ -423,7 +415,10 @@ const registerDriver = asyncHandler(async (req, res) => {
     licenseExpiry
   });
 
-  const token = generateToken(driverUser._id, 'driver');
+  const { accessToken, refreshToken, expiresIn } = await tokenService.issueTokens(driverUser, {
+    ip: req.ip,
+    userAgent: req.get('user-agent')
+  });
   res.status(201).json(
     formatSuccess('Driver registered successfully', {
       user: {
@@ -433,7 +428,9 @@ const registerDriver = asyncHandler(async (req, res) => {
         phone: driverUser.phone,
         role: driverUser.role
       },
-      token
+      accessToken,
+      refreshToken,
+      expiresIn
     })
   );
 });
@@ -482,7 +479,10 @@ const loginDriver = asyncHandler(async (req, res) => {
     return res.status(401).json(formatError('Invalid credentials', 401));
   }
 
-  const token = generateToken(user._id, 'driver');
+  const { accessToken, refreshToken, expiresIn } = await tokenService.issueTokens(user, {
+    ip: req.ip,
+    userAgent: req.get('user-agent')
+  });
   const driverProfile = {
     vehicleType: user.vehicleType,
     vehicleNumber: user.vehicleNumber,
@@ -504,39 +504,98 @@ const loginDriver = asyncHandler(async (req, res) => {
       ridesCompleted: user.ridesCompleted,
       driverProfile
     },
-    token
+    accessToken,
+    refreshToken,
+    expiresIn
   }));
+});
+
+/**
+ * Refresh access token
+ * POST /api/auth/refresh
+ * Body: { refreshToken }
+ */
+const refresh = asyncHandler(async (req, res) => {
+  const { refreshToken } = req.body || {};
+  const rotated = await tokenService.rotateRefreshToken(refreshToken, { ip: req.ip, userAgent: req.get('user-agent') });
+  if (!rotated) {
+    return res.status(401).json(formatError('Invalid or expired refresh token', 401));
+  }
+  res.json(formatSuccess('Token refreshed', { accessToken: rotated.accessToken, refreshToken: rotated.refreshToken }));
+});
+
+/**
+ * Logout
+ * POST /api/auth/logout
+ * Body: { refreshToken }
+ */
+const logout = asyncHandler(async (req, res) => {
+  const { refreshToken } = req.body || {};
+  if (!refreshToken) return res.status(400).json(formatError('refreshToken is required', 400));
+  await tokenService.revokeToken(refreshToken, 'logout');
+  res.json(formatSuccess('Logged out successfully'));
 });
 
 /**
  * Delete current account
  * DELETE /api/auth/account
+ *
+ * Behaviour: perform a safe soft-delete for both rider and driver accounts.
+ * - Block deletion if there's an active ride (requested/accepted/driver-arrived/in-progress)
+ * - Mark account as inactive and mask email/phone to free up unique indices
  */
 const deleteAccount = asyncHandler(async (req, res) => {
   const role = req.userRole || req.user?.role;
+  const userId = req.userId;
+  const activeStatuses = ['requested', 'accepted', 'driver-arrived', 'in-progress'];
 
   if (role === 'driver') {
-    // Block deletion if there is an active ride
-    const driverProfile = await require('../models/Driver').findById(req.userId);
-    if (driverProfile?.currentRide) {
-      return res.status(400).json(formatError('Cannot delete account while a ride is active', 400));
+    const driver = await Driver.findById(userId);
+    if (!driver) {
+      return res.status(404).json(formatError('User not found', 404));
     }
 
-    // Safe to delete: remove driver profile then account
-    if (driverProfile) {
-      await driverProfile.deleteOne();
+    // Check for active ride via currentRide or Ride collection
+    let activeRide = null;
+    if (driver.currentRide) {
+      activeRide = await Ride.findById(driver.currentRide);
     }
-    // Account is the same document now; nothing else to delete
-  } else {
-    // Rider: block if there is any active ride
-    const activeRide = await require('../models/Ride').findOne({
-      rider: req.userId,
-      status: { $in: ['requested', 'accepted', 'driver-arrived', 'in-progress'] }
-    });
+    if (!activeRide) {
+      activeRide = await Ride.findOne({ driver: userId, status: { $in: activeStatuses } });
+    }
+
     if (activeRide) {
       return res.status(400).json(formatError('Cannot delete account while a ride is active', 400));
     }
-    await User.findByIdAndDelete(req.userId);
+
+    // Soft-delete: deactivate and mask unique fields
+    driver.isActive = false;
+    const uniqueSuffix = `${Date.now()}${driver._id.toString().slice(-6)}`;
+    driver.email = `deleted+${uniqueSuffix}@example.invalid`;
+    let maskedPhone = ('9' + uniqueSuffix).replace(/\D/g, '').slice(0, 10);
+    if (maskedPhone.length < 10) maskedPhone = maskedPhone.padEnd(10, '0');
+    driver.phone = maskedPhone;
+    driver.isAvailable = false;
+    driver.currentRide = null;
+    await driver.save();
+  } else {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json(formatError('User not found', 404));
+    }
+
+    const activeRide = await Ride.findOne({ rider: userId, status: { $in: activeStatuses } });
+    if (activeRide) {
+      return res.status(400).json(formatError('Cannot delete account while a ride is active', 400));
+    }
+
+    user.isActive = false;
+    const uniqueSuffix = `${Date.now()}${user._id.toString().slice(-6)}`;
+    user.email = `deleted+${uniqueSuffix}@example.invalid`;
+    let maskedPhone = ('9' + uniqueSuffix).replace(/\D/g, '').slice(0, 10);
+    if (maskedPhone.length < 10) maskedPhone = maskedPhone.padEnd(10, '0');
+    user.phone = maskedPhone;
+    await user.save();
   }
 
   return res.json(formatSuccess('Account deleted successfully'));
@@ -551,5 +610,7 @@ module.exports = {
   updateProfile,
   changePassword,
   forgotPassword,
-  deleteAccount
+  deleteAccount,
+  refresh,
+  logout
 };
