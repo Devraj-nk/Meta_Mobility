@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
@@ -8,6 +8,7 @@ const DriverDashboard = () => {
   const { user, isAuthenticated } = useAuth()
   const navigate = useNavigate()
   const [driverProfile, setDriverProfile] = useState(null)
+  const [kpis, setKpis] = useState({ earnings: 0, rides: 0, acceptanceRate: 0 })
   const [loading, setLoading] = useState(true)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [currentLocation, setCurrentLocation] = useState(null)
@@ -20,6 +21,8 @@ const DriverDashboard = () => {
     vehicleModel: '',
     vehicleColor: ''
   })
+  const [rideOffers, setRideOffers] = useState([])
+  const pollingRef = useRef(null)
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -33,6 +36,34 @@ const DriverDashboard = () => {
     fetchDriverProfile()
     getCurrentLocationOnLoad()
   }, [isAuthenticated, user, navigate])
+
+  // Poll for nearby ride requests when online and free
+  useEffect(() => {
+    const shouldPoll = !!driverProfile?.isAvailable && !driverProfile?.currentRide
+    if (!shouldPoll) {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current)
+        pollingRef.current = null
+      }
+      return
+    }
+
+    const fetchOffers = async () => {
+      try {
+        const res = await api.driverRideRequests()
+        setRideOffers(res.data?.data?.requests || [])
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // Initial + interval
+    fetchOffers()
+    pollingRef.current = setInterval(fetchOffers, 5000)
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current)
+    }
+  }, [driverProfile?.isAvailable, driverProfile?.currentRide])
 
   const getCurrentLocationOnLoad = () => {
     if ('geolocation' in navigator) {
@@ -77,6 +108,48 @@ const DriverDashboard = () => {
       setLoading(false)
     }
   }
+
+  // Fetch ride history to compute KPIs (only completed & paid rides contribute to earnings, rides)
+  const computeKPIs = async () => {
+    try {
+      // Page through history respecting API limit (max 100)
+      const limit = 100
+      let page = 1
+      let totalPages = 1
+      const all = []
+      do {
+        const historyRes = await api.rideHistory({ page, limit })
+        const data = historyRes.data?.data
+        const ridesPage = Array.isArray(data?.rides) ? data.rides : Array.isArray(data) ? data : []
+        totalPages = data?.totalPages || 1
+        all.push(...ridesPage)
+        page += 1
+      } while (page <= totalPages && page <= 5) // cap to 5 pages for performance
+
+      const rides = all
+      const paidCompleted = rides.filter(r => r.status === 'completed' && r.paymentStatus === 'completed')
+      const earnings = paidCompleted.reduce((sum, r) => {
+        const fare = Number(r.fare?.finalFare ?? r.fare?.estimatedFare ?? 0) || 0
+        return sum + fare
+      }, 0)
+      const completedCount = paidCompleted.length
+
+      // Acceptance rate heuristic
+      const accepted = rides.filter(r => ['accepted','driver-arrived','in-progress','completed'].includes(r.status)).length
+      const offers = rides.filter(r => ['requested','driver-selected','cancelled','accepted','driver-arrived','in-progress','completed'].includes(r.status)).length
+      const acceptanceRate = offers > 0 ? Math.round((accepted / offers) * 100) : 100
+
+      setKpis({ earnings, rides: completedCount, acceptanceRate })
+    } catch (e) {
+      // silent fail; keep previous KPIs
+    }
+  }
+
+  useEffect(() => {
+    if (isAuthenticated && user?.role === 'driver') {
+      computeKPIs()
+    }
+  }, [isAuthenticated, user])
 
   const handleUpdateVehicle = async () => {
     try {
@@ -200,6 +273,8 @@ const DriverDashboard = () => {
 
   const kycStatus = driverProfile?.kycStatus || 'pending'
   const isKycApproved = kycStatus === 'approved'
+  // Use driver profile rating; clamp between 0 and 5, default 0
+  const rating = Math.max(0, Math.min(5, Number(driverProfile?.rating) || 0))
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -387,6 +462,73 @@ const DriverDashboard = () => {
               </div>
             )}
 
+            {/* Incoming Ride Offers */}
+            {driverProfile?.isAvailable && !driverProfile?.currentRide && (
+              <div className="mt-4">
+                <h3 className="text-lg font-bold text-gray-900 mb-2">Incoming Ride Requests</h3>
+                {rideOffers.length === 0 ? (
+                  <div className="text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded p-3">
+                    No requests nearby yet. Waiting for offers...
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {rideOffers.map((r) => (
+                      <div key={r._id} className="border rounded-lg p-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold capitalize">{r.rideType}</span>
+                          <span className="text-xs text-gray-500">{new Date(r.createdAt).toLocaleTimeString()}</span>
+                        </div>
+                        <div className="mt-2 text-sm text-gray-700">
+                          <div className="flex items-start gap-2">
+                            <MapPin className="h-4 w-4 text-green-600 mt-0.5" />
+                            <span>{r.pickupLocation?.address}</span>
+                          </div>
+                          <div className="flex items-start gap-2 mt-1">
+                            <Navigation className="h-4 w-4 text-red-600 mt-0.5" />
+                            <span>{r.dropoffLocation?.address}</span>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            onClick={async () => {
+                              try {
+                                const otp = prompt('Enter rider OTP to accept this ride:')
+                                if (!otp) return
+                                const resp = await api.driverAccept(r._id, { otp })
+                                alert('✅ Ride accepted after OTP verification!')
+                                // Refresh profile to reflect currentRide
+                                fetchDriverProfile()
+                              } catch (err) {
+                                const status = err.response?.status
+                                let msg = err.response?.data?.message
+                                if (!msg) {
+                                  if (status === 400) msg = 'Invalid OTP'
+                                  else if (status === 409) msg = 'Ride already accepted'
+                                  else msg = err.message || 'Failed to accept ride'
+                                }
+                                alert(msg)
+                                // Refresh offers
+                                try { const rr = await api.driverRideRequests(); setRideOffers(rr.data?.data?.requests || []) } catch {}
+                              }
+                            }}
+                            className="btn-primary text-sm"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={() => setRideOffers(rideOffers.filter(o => o._id !== r._id))}
+                            className="btn-secondary text-sm"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Driver Location Status */}
             {driverProfile?.currentLocation && (
               <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
@@ -462,9 +604,7 @@ const DriverDashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">Total Earnings</p>
-                  <p className="text-2xl font-bold text-primary-600">
-                    ₹{driverProfile?.totalEarnings?.toFixed(2) || '0.00'}
-                  </p>
+                  <p className="text-2xl font-bold text-primary-600">₹{kpis.earnings.toFixed(2)}</p>
                 </div>
                 <DollarSign className="h-12 w-12 text-primary-200" />
               </div>
@@ -474,9 +614,7 @@ const DriverDashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">Total Rides</p>
-                  <p className="text-2xl font-bold text-blue-600">
-                    {driverProfile?.totalRides || 0}
-                  </p>
+                  <p className="text-2xl font-bold text-blue-600">{kpis.rides}</p>
                 </div>
                 <CheckCircle className="h-12 w-12 text-blue-200" />
               </div>
@@ -486,9 +624,7 @@ const DriverDashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">Acceptance Rate</p>
-                  <p className="text-2xl font-bold text-green-600">
-                    {driverProfile?.acceptanceRate || 100}%
-                  </p>
+                  <p className="text-2xl font-bold text-green-600">{kpis.acceptanceRate}%</p>
                 </div>
                 <TrendingUp className="h-12 w-12 text-green-200" />
               </div>
@@ -596,40 +732,27 @@ const DriverDashboard = () => {
         <div className="space-y-6">
           {/* Driver Stats */}
           <div className="card">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Driver Stats</h3>
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Driver Rating</h3>
             <div className="space-y-4">
               <div>
                 <div className="text-sm text-gray-600 mb-2">Rating</div>
                 <div className="flex items-center gap-1">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star
-                      key={star}
-                      className={`h-5 w-5 cursor-pointer transition-colors ${
-                        star <= Math.round(user?.rating || 5)
-                          ? 'text-yellow-400 fill-yellow-400'
-                          : 'text-gray-300'
-                      }`}
-                      onClick={() => console.log(`Clicked star ${star}`)}
-                    />
-                  ))}
-                  <span className="ml-2 text-sm font-semibold text-gray-700">
-                    {user?.rating?.toFixed(1) || '5.0'}
-                  </span>
+                  {[1, 2, 3, 4, 5].map((star) => {
+                    const active = star <= Math.round(rating)
+                    return (
+                      <Star
+                        key={star}
+                        aria-hidden
+                        className={`h-5 w-5 pointer-events-none transition-colors ${
+                          active
+                            ? 'text-yellow-400 fill-yellow-400'
+                            : 'text-gray-300 fill-transparent stroke-gray-400'
+                        }`}
+                      />
+                    )
+                  })}
+                  <span className="ml-2 text-sm font-semibold text-gray-700">{rating.toFixed(1)}</span>
                 </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <Award className="h-5 w-5 text-purple-400 mr-2" />
-                  <span className="text-gray-700">Level</span>
-                </div>
-                <span className="font-bold">{driverProfile?.level || 1}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <TrendingUp className="h-5 w-5 text-blue-400 mr-2" />
-                  <span className="text-gray-700">Experience</span>
-                </div>
-                <span className="font-bold">{driverProfile?.experience || 0} XP</span>
               </div>
             </div>
           </div>
@@ -653,20 +776,23 @@ const DriverDashboard = () => {
           <div className="card">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Quick Actions</h3>
             <div className="space-y-3">
-              <button 
+              <button
                 className="w-full btn-secondary text-left"
-                disabled={!isKycApproved}
+                onClick={() => navigate('/driver/history')}
               >
-                View Earnings History
+                View History
               </button>
-              <button 
+              <button
                 className="w-full btn-secondary text-left"
-                disabled={!isKycApproved}
+                onClick={() => navigate('/help')}
               >
-                Update Location
-              </button>
-              <button className="w-full btn-secondary text-left">
                 Contact Support
+              </button>
+              <button
+                className="w-full btn-secondary text-left"
+                onClick={() => navigate('/safety')}
+              >
+                Safety
               </button>
             </div>
           </div>

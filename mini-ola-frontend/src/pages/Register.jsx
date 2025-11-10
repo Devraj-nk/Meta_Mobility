@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { User, Mail, Lock, Phone, AlertCircle, Car, FileText } from 'lucide-react'
+import { User, AlertCircle, Car } from 'lucide-react'
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -63,7 +63,8 @@ const Register = () => {
     const result = await register(userData)
     
     if (result.success) {
-      navigate(formData.role === 'driver' ? '/driver/dashboard' : '/rider/dashboard')
+      // After driver registration, guide to Bank Details to complete payout info
+      navigate(formData.role === 'driver' ? '/driver/bank' : '/rider/dashboard')
     } else {
       setError(result.message)
     }
@@ -97,35 +98,35 @@ const Register = () => {
                 I want to
               </label>
               <div className="grid grid-cols-2 gap-4">
-                <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, role: 'rider' })}
-                  className={`p-4 border-2 rounded-lg transition-all ${
-                    formData.role === 'rider'
-                      ? 'border-primary-600 bg-primary-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <User className="h-8 w-8 mx-auto mb-2 text-primary-600" />
-                  <div className="font-semibold">Book Rides</div>
-                  <div className="text-sm text-gray-600">Rider</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, role: 'driver' })}
-                  className={`p-4 border-2 rounded-lg transition-all ${
-                    formData.role === 'driver'
-                      ? 'border-primary-600 bg-primary-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <Car className="h-8 w-8 mx-auto mb-2 text-primary-600" />
-                  <div className="font-semibold">Earn Money</div>
-                  <div className="text-sm text-gray-600">Driver</div>
-                </button>
+                {['rider', 'driver'].map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setFormData((prev) => ({ ...prev, role: type }))}
+                    className={`p-4 border-2 rounded-lg transition-all ${
+                      formData.role === type
+                        ? 'border-green-600 bg-green-50 text-green-700'
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    {type === 'rider' ? (
+                      <User
+                        className={`h-8 w-8 mx-auto mb-2 ${
+                          formData.role === type ? 'text-green-600' : 'text-gray-400'
+                        }`}
+                      />
+                    ) : (
+                      <Car
+                        className={`h-8 w-8 mx-auto mb-2 ${
+                          formData.role === type ? 'text-green-600' : 'text-gray-400'
+                        }`}
+                      />
+                    )}
+                    <div className="font-semibold capitalize">{type}</div>
+                  </button>
+                ))}
               </div>
             </div>
-
             {/* Basic Info */}
             <div className="grid md:grid-cols-2 gap-4">
               <div>

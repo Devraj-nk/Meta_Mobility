@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Mail, Lock, AlertCircle, Car } from 'lucide-react'
 
@@ -9,13 +9,24 @@ const Login = () => {
     password: ''
   })
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
   const { login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  useEffect(() => {
+    if (location.state?.message) {
+      setMessage(location.state.message)
+      // Clear the state message so it doesn't persist on navigation
+      navigate(location.pathname, { replace: true })
+    }
+  }, [location, navigate])
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
-    setError('')
+  setError('')
+  setMessage('')
   }
 
   const handleSubmit = async (e) => {
@@ -27,7 +38,11 @@ const Login = () => {
     
     if (result.success) {
       // Redirect based on user role
-      navigate('/rider/dashboard')
+      if (result.role === 'driver') {
+        navigate('/driver/dashboard')
+      } else {
+        navigate('/rider/dashboard')
+      }
     } else {
       setError(result.message)
     }
@@ -46,6 +61,13 @@ const Login = () => {
             <h2 className="text-3xl font-bold text-gray-900">Welcome Back</h2>
             <p className="text-gray-600 mt-2">Sign in to continue to Mini Ola</p>
           </div>
+
+          {message && (
+            <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start">
+              <AlertCircle className="h-5 w-5 text-green-600 mr-2 mt-0.5" />
+              <p className="text-green-800 text-sm">{message}</p>
+            </div>
+          )}
 
           {error && (
             <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start">
@@ -90,6 +112,11 @@ const Login = () => {
                   className="input-field pl-10"
                   placeholder="••••••••"
                 />
+              </div>
+              <div className="text-right mt-2">
+                <Link to="/forgot-password" className="text-sm text-primary-600 hover:text-primary-700">
+                  Forgot password?
+                </Link>
               </div>
             </div>
 

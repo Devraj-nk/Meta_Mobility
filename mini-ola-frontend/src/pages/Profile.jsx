@@ -1,9 +1,33 @@
-import { User, Star, HelpCircle, Package, CreditCard, MapPin, Shield, Gift, Zap, Bell, FileText, ChevronRight, Car, DollarSign, Clock, TrendingUp, Settings, Award } from 'lucide-react'
+import {
+  User,
+  Star,
+  HelpCircle,
+  Package,
+  CreditCard,
+  MapPin,
+  Shield,
+  Gift,
+  Zap,
+  Bell,
+  FileText,
+  ChevronRight,
+  Car,
+  Settings,
+  DollarSign,
+  Clock,
+  TrendingUp,
+  Award,
+  Wallet,
+  Plus,
+  Minus
+} from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import { api } from '../api/client'
 
 const Profile = () => {
-  const { user } = useAuth()
+  const { user, refreshProfile } = useAuth()
   const navigate = useNavigate()
   
   // Debug: Log user data
@@ -11,46 +35,83 @@ const Profile = () => {
   console.log('User role:', user?.role)
 
   const handleMenuClick = (path) => {
-    // For now, navigate to the path or show alert for unimplemented pages
-    if (path === '/rides' || path === '/driver/trips') {
-      // Navigate back to dashboard which has ride history
-      navigate(user?.role === 'driver' ? '/driver/dashboard' : '/rider/dashboard')
-    } else if (path === '/payment' || path === '/driver/bank') {
-      alert('Payment/Bank section - Coming soon!')
-    } else {
-      alert(`${path} - Coming soon!`)
+    // Navigate directly for implemented driver routes
+    if (
+      path === '/driver/history' ||
+      path === '/driver/documents' ||
+      path === '/driver/account' ||
+      path === '/driver/bank'
+    ) {
+      navigate(path)
+      return
     }
+
+    // Existing shortcuts and general pages
+    if (path === '/rides' || path === '/driver/trips') {
+      navigate(user?.role === 'driver' ? '/driver/dashboard' : '/rider/dashboard')
+      return
+    }
+
+    if (path === '/safety') {
+      navigate('/safety')
+      return
+    }
+
+    if (path === '/help') {
+      navigate('/help')
+      return
+    }
+
+    if (path === '/settings') {
+      navigate('/settings')
+      return
+    }
+
+    if (path === '/payment' || path === '/driver/bank') {
+      navigate(path)
+      return
+    }
+
+    // Default placeholder
+    alert(`${path} - Coming soon!`)
   }
 
   // Rider-specific menu items
   const riderMenuItems = [
     { icon: MapPin, label: 'My Rides', path: '/rides' },
-    { icon: CreditCard, label: 'Payment Methods', path: '/payment' },
-    { icon: Package, label: 'Parcel - Send Items', path: '/parcel' },
-    { icon: Gift, label: 'My Rewards', path: '/rewards' },
-    { icon: Zap, label: 'Power Pass', path: '/power-pass' },
-    { icon: Bell, label: 'Notifications', path: '/notifications' },
     { icon: Shield, label: 'Safety', path: '/safety' },
     { icon: HelpCircle, label: 'Help & Support', path: '/help' },
-    { icon: Settings, label: 'Settings', path: '/settings' },
   ]
 
   // Driver-specific menu items
   const driverMenuItems = [
-    { icon: Car, label: 'My Trips', path: '/driver/trips' },
-    { icon: DollarSign, label: 'Earnings', path: '/driver/earnings' },
-    { icon: Clock, label: 'Working Hours', path: '/driver/hours' },
-    { icon: TrendingUp, label: 'Performance', path: '/driver/performance' },
-    { icon: Award, label: 'Achievements', path: '/driver/achievements' },
+    { icon: FileText, label: 'History', path: '/driver/history' },
     { icon: CreditCard, label: 'Bank Details', path: '/driver/bank' },
     { icon: FileText, label: 'Documents', path: '/driver/documents' },
-    { icon: Bell, label: 'Notifications', path: '/notifications' },
     { icon: Shield, label: 'Safety', path: '/safety' },
     { icon: HelpCircle, label: 'Help & Support', path: '/help' },
-    { icon: Settings, label: 'Settings', path: '/settings' },
   ]
 
   const menuItems = user?.role === 'driver' ? driverMenuItems : riderMenuItems
+  const [topupOpen, setTopupOpen] = useState(false)
+  const [amount, setAmount] = useState(100)
+  const [loading, setLoading] = useState(false)
+
+  const handleTopup = async () => {
+    setLoading(true)
+    try {
+      const res = await api.walletTopup({ amount, method: 'upi' })
+      const newBalance = res.data?.data?.balance
+      // refresh global profile so all screens show updated balance
+      await refreshProfile()
+      alert('Wallet topped up! New balance: ₹' + (newBalance?.toFixed ? newBalance.toFixed(2) : newBalance))
+    } catch (e) {
+      alert(e.response?.data?.message || e.message || 'Top-up failed')
+    } finally {
+      setLoading(false)
+      setTopupOpen(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -69,9 +130,15 @@ const Profile = () => {
 
         {/* User Card */}
         <div className="bg-white rounded-2xl shadow-sm p-4 mb-4">
-          <button 
-            onClick={() => alert('Edit Profile - Coming soon!')}
-            className="w-full flex items-center justify-between mb-4 pb-4 border-b border-gray-100 hover:bg-gray-50 active:bg-gray-100 transition-colors rounded-lg p-2 -m-2"
+          <button
+            onClick={() => {
+              if (user?.role === 'driver') {
+                navigate('/driver/account')
+              } else {
+                navigate('/settings')
+              }
+            }}
+            className="w-full flex items-center justify-between hover:bg-gray-50 active:bg-gray-100 transition-colors rounded-lg p-2 -m-2"
           >
             <div className="flex items-center space-x-3">
               <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
@@ -90,22 +157,47 @@ const Profile = () => {
             </div>
             <ChevronRight className="w-5 h-5 text-gray-400" />
           </button>
-
-          {/* Rating */}
-          <button 
-            onClick={() => navigate(user?.role === 'driver' ? '/driver/dashboard' : '/rider/dashboard')}
-            className="w-full flex items-center justify-between py-3 hover:bg-gray-50 active:bg-gray-100 transition-colors rounded-lg px-2 -mx-2"
-          >
-            <div className="flex items-center space-x-2">
-              <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
-              <span className="font-medium text-gray-900">{user?.rating?.toFixed(2) || '5.00'} My Rating</span>
-            </div>
-            <ChevronRight className="w-5 h-5 text-gray-400" />
-          </button>
+          {/* Rating removed as requested */}
         </div>
 
         {/* Menu Items */}
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+          {/* Wallet card for riders */}
+          {user?.role !== 'driver' && (
+            <div className="p-4 border-b border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Wallet className="w-5 h-5 text-green-600" />
+                  <span className="text-gray-900 font-semibold">Wallet</span>
+                </div>
+                <span className="font-bold text-green-700">₹{user?.walletBalance?.toFixed(2) || '0.00'}</span>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button onClick={() => setTopupOpen(true)} className="btn-primary text-sm flex items-center gap-1">
+                  <Plus className="w-4 h-4" /> Add Money
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Top-up modal */}
+          {topupOpen && (
+            <div className="p-4 border-b border-gray-100 bg-gray-50">
+              <div className="flex items-center gap-2 mb-2">
+                <Wallet className="w-5 h-5 text-primary-600" />
+                <span className="font-semibold">Add Money to Wallet</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button className="btn-secondary px-3 py-1" onClick={() => setAmount(Math.max(1, amount-50))}><Minus className="w-4 h-4"/></button>
+                <input type="number" className="input-field w-32" value={amount} onChange={(e)=>setAmount(parseInt(e.target.value||'0'))} />
+                <button className="btn-secondary px-3 py-1" onClick={() => setAmount(amount+50)}><Plus className="w-4 h-4"/></button>
+                <button disabled={loading} onClick={handleTopup} className="btn-primary ml-auto">Pay via UPI</button>
+                <button disabled={loading} onClick={()=>setTopupOpen(false)} className="btn-secondary">Cancel</button>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Top-up is simulated for demo. Balance updates instantly.</p>
+            </div>
+          )}
+
           {menuItems.map((item, index) => (
             <button
               key={index}

@@ -8,7 +8,12 @@ const rideSchema = new mongoose.Schema({
   },
   driver: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    ref: 'Driver',
+    default: null
+  },
+  preferredDriver: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Driver',
     default: null
   },
   rideType: {
@@ -70,8 +75,13 @@ const rideSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['requested', 'accepted', 'driver-arrived', 'in-progress', 'completed', 'cancelled'],
+    enum: ['requested', 'driver-selected', 'accepted', 'driver-arrived', 'in-progress', 'completed', 'cancelled'],
     default: 'requested'
+  },
+  // Timestamp when rider selected a specific driver
+  driverSelectedAt: {
+    type: Date,
+    default: null
   },
   fare: {
     estimatedFare: {
@@ -101,6 +111,11 @@ const rideSchema = new mongoose.Schema({
   otp: {
     type: String,
     default: null
+  },
+  // Flag indicating whether the rider's OTP has been verified by the driver
+  otpVerified: {
+    type: Boolean,
+    default: false
   },
   scheduledTime: {
     type: Date,

@@ -19,7 +19,8 @@ router.post(
   sanitizeInput,
   [
     body('rideId').notEmpty().withMessage('Ride ID is required')
-      .isMongoId().withMessage('Invalid ride ID')
+      .isMongoId().withMessage('Invalid ride ID'),
+    body('method').optional().isIn(['wallet', 'upi', 'cash']).withMessage('Invalid method')
   ],
   validate,
   paymentController.processPayment
@@ -61,6 +62,22 @@ router.post(
   ],
   validate,
   paymentController.refundPayment
+);
+
+/**
+ * @route   POST /api/payments/wallet/topup
+ * @desc    Top up wallet balance
+ * @access  Private (Rider)
+ */
+router.post(
+  '/wallet/topup',
+  sanitizeInput,
+  [
+    body('amount').isFloat({ min: 1 }).withMessage('Amount must be at least 1'),
+    body('method').optional().isIn(['upi', 'cash']).withMessage('Invalid top-up method')
+  ],
+  validate,
+  paymentController.topUpWallet
 );
 
 module.exports = router;

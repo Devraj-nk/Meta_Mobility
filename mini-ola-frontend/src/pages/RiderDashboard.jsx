@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import { MapPin, Navigation, DollarSign, Clock, Star, Car as CarIcon, User, Phone, Wallet, Locate } from 'lucide-react'
+import { MapPin, Navigation, DollarSign, Clock, Car as CarIcon, User, Phone, Wallet, Locate } from 'lucide-react'
 
 const RiderDashboard = () => {
   const { user, isAuthenticated } = useAuth()
@@ -12,6 +12,7 @@ const RiderDashboard = () => {
   const [bookingRide, setBookingRide] = useState(false)
   const [fareEstimate, setFareEstimate] = useState(null)
   const [activeRide, setActiveRide] = useState(null)
+  const [searchingDriver, setSearchingDriver] = useState(false)
   const [currentLocation, setCurrentLocation] = useState(null)
   const [showLocationMap, setShowLocationMap] = useState(false)
   const [locationLoading, setLocationLoading] = useState(true)
@@ -22,6 +23,14 @@ const RiderDashboard = () => {
   const [showDebugInfo, setShowDebugInfo] = useState(false)
   const [debugInfo, setDebugInfo] = useState(null)
   const [locationInitialized, setLocationInitialized] = useState(false)
+  const [typeEstimates, setTypeEstimates] = useState({})
+  const [estimatingTypes, setEstimatingTypes] = useState(false)
+  // Driver selection state after requesting a ride
+  const [driverOptions, setDriverOptions] = useState([])
+  const [showDriverSelect, setShowDriverSelect] = useState(false)
+  const [rideIdForSelection, setRideIdForSelection] = useState(null)
+  const [selectingDriver, setSelectingDriver] = useState(null)
+  const [selectError, setSelectError] = useState(null)
   
   const [rideForm, setRideForm] = useState({
     pickupLat: 0,
@@ -48,7 +57,7 @@ const RiderDashboard = () => {
     getCurrentLocationOnLoad()
   }, [isAuthenticated, user, navigate])
 
-  // Auto-refresh active ride every 10 seconds if there's an active ride
+  // Auto-refresh active ride every 10 seconds normally
   useEffect(() => {
     if (activeRide && ['requested', 'accepted', 'driver-arrived', 'in-progress'].includes(activeRide.status)) {
       const interval = setInterval(() => {
@@ -59,6 +68,60 @@ const RiderDashboard = () => {
       return () => clearInterval(interval)
     }
   }, [activeRide])
+
+  // When waiting for driver assignment, poll faster (3s)
+  useEffect(() => {
+    if (activeRide?.status === 'requested') {
+      setSearchingDriver(true)
+      const interval = setInterval(() => {
+        fetchActiveRide()
+      }, 3000)
+      return () => clearInterval(interval)
+    } else {
+      setSearchingDriver(false)
+    }
+  }, [activeRide?.status])
+
+  // Auto-estimate fares for all ride types when both locations are set
+  useEffect(() => {
+    const hasPickup = rideForm.pickupLat && rideForm.pickupLng
+    const hasDrop = rideForm.dropoffLat && rideForm.dropoffLng
+    if (!hasPickup || !hasDrop) {
+      setTypeEstimates({})
+      return
+    }
+
+    // Debounce rapid changes
+    const t = setTimeout(async () => {
+      try {
+        setEstimatingTypes(true)
+        const rideTypes = ['bike', 'mini', 'sedan', 'suv']
+        const results = {}
+        await Promise.all(
+          rideTypes.map(async (rt) => {
+            try {
+              const res = await api.fareEstimate({
+                pickupLat: rideForm.pickupLat,
+                pickupLng: rideForm.pickupLng,
+                dropoffLat: rideForm.dropoffLat,
+                dropoffLng: rideForm.dropoffLng,
+                rideType: rt,
+                isGroupRide: false
+              })
+              results[rt] = res.data?.data?.estimatedFare
+            } catch (e) {
+              // ignore individual failures
+            }
+          })
+        )
+        setTypeEstimates(results)
+      } finally {
+        setEstimatingTypes(false)
+      }
+    }, 500)
+
+    return () => clearTimeout(t)
+  }, [rideForm.pickupLat, rideForm.pickupLng, rideForm.dropoffLat, rideForm.dropoffLng])
 
   const getCurrentLocationOnLoad = () => {
     console.log('🔍 Requesting location...')
@@ -297,9 +360,15 @@ const RiderDashboard = () => {
     
     try {
       const response = await api.requestRide(rideForm)
-      alert('✅ Ride requested successfully! Driver has been assigned.\n\n' + 
-            `📍 Pickup: ${rideForm.pickupLat.toFixed(4)}, ${rideForm.pickupLng.toFixed(4)}\n` +
-            `🚗 Driver: ${response.data?.data?.ride?.driver?.name || 'Assigned'}`)
+      const data = response?.data?.data || {}
+      const rideFromResp = data.ride
+      const driversFromResp = Array.isArray(data.drivers) ? data.drivers : []
+      // If we have drivers, prompt the rider to pick one
+      if (rideFromResp && driversFromResp.length > 0) {
+        setRideIdForSelection(rideFromResp._id)
+        setDriverOptions(driversFromResp)
+        setShowDriverSelect(true)
+      }
       
       // Keep pickup location but clear addresses and reset dropoff
       const currentPickupLat = rideForm.pickupLat
@@ -314,6 +383,7 @@ const RiderDashboard = () => {
       setFareEstimate(null)
       fetchRideHistory()
       fetchActiveRide()
+      setSearchingDriver(true)
     } catch (error) {
       console.error('Failed to book ride:', error)
       const errorMsg = error.response?.data?.message || 'Failed to book ride'
@@ -327,6 +397,26 @@ const RiderDashboard = () => {
             'Click "Check Drivers" button to see available drivers.')
     } finally {
       setBookingRide(false)
+    }
+  }
+
+  const handleSelectDriver = async (driverId) => {
+    if (!rideIdForSelection) return
+    setSelectError(null)
+    setSelectingDriver(driverId)
+    try {
+      await api.selectDriver(rideIdForSelection, { driverId })
+      // Close modal and refresh active ride status
+      setShowDriverSelect(false)
+      setDriverOptions([])
+      setRideIdForSelection(null)
+      await fetchActiveRide()
+      setSearchingDriver(true)
+    } catch (err) {
+      const msg = err?.response?.data?.message || err.message || 'Failed to select driver'
+      setSelectError(msg)
+    } finally {
+      setSelectingDriver(null)
     }
   }
 
@@ -349,6 +439,7 @@ const RiderDashboard = () => {
   const getStatusColor = (status) => {
     const colors = {
       requested: 'bg-yellow-100 text-yellow-800',
+      'driver-selected': 'bg-indigo-100 text-indigo-800',
       accepted: 'bg-blue-100 text-blue-800',
       'in-progress': 'bg-purple-100 text-purple-800',
       completed: 'bg-green-100 text-green-800',
@@ -719,6 +810,57 @@ const RiderDashboard = () => {
         </div>
       )}
 
+      {/* Driver Selection Modal */}
+      {showDriverSelect && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-gray-900">Choose Your Driver</h2>
+              <button
+                onClick={() => setShowDriverSelect(false)}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              We found {driverOptions.length} nearby driver{driverOptions.length !== 1 ? 's' : ''} for your {rideForm.rideType} ride.
+              Pick one to send the request directly, or close to wait for any driver.
+            </p>
+            {selectError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 rounded p-3 mb-3 text-sm">
+                {selectError}
+              </div>
+            )}
+            <div className="space-y-3">
+              {driverOptions.map((d) => (
+                <div key={d.id} className="border rounded-lg p-4 flex items-start justify-between">
+                  <div>
+                    <div className="font-semibold text-gray-900">{d.name} <span className="text-xs text-gray-500">({d.vehicleType?.toUpperCase()})</span></div>
+                    <div className="text-sm text-gray-600">{d.vehicleNumber || '—'} • ⭐ {d.rating || 0}</div>
+                    {Number.isFinite(d.distanceKm) && (
+                      <div className="text-xs text-gray-500 mt-1">~{d.distanceKm} km away</div>
+                    )}
+                  </div>
+                  <button
+                    disabled={!!selectingDriver}
+                    onClick={() => handleSelectDriver(d.id)}
+                    className="btn-primary whitespace-nowrap disabled:opacity-50"
+                  >
+                    {selectingDriver === d.id ? 'Selecting…' : 'Select'}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button onClick={() => setShowDriverSelect(false)} className="btn-secondary flex-1">I'll wait for any driver</button>
+              <button onClick={() => { setShowDriverSelect(false); fetchActiveRide(); }} className="btn-primary flex-1">Continue</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid lg:grid-cols-3 gap-8">
         {/* Book Ride Section */}
         <div className="lg:col-span-2 space-y-6">
@@ -750,9 +892,9 @@ const RiderDashboard = () => {
                     OTP: <span className="font-mono font-semibold">{activeRide.otp || '—'}</span>
                   </span>
                 </div>
-                {['requested', 'accepted', 'driver-arrived', 'in-progress'].includes(activeRide.status) && (
+                {['requested', 'driver-selected', 'accepted', 'driver-arrived', 'in-progress'].includes(activeRide.status) && (
                   <div className="bg-blue-50 border border-blue-200 rounded p-2 text-xs text-blue-800">
-                    ℹ️ Auto-refreshing every 10 seconds. Status will update when driver completes the ride.
+                    {activeRide.status === 'driver-selected' ? 'Driver selected. Awaiting driver acceptance. Auto-refreshing every 10s.' : 'ℹ️ Auto-refreshing every 10 seconds. Status will update as the driver progresses.'}
                   </div>
                 )}
                 <div className="text-sm space-y-1">
@@ -934,17 +1076,19 @@ const RiderDashboard = () => {
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Ride Type
+                    Ride Type {estimatingTypes && (
+                      <span className="ml-2 text-xs text-blue-600">(updating…)</span>
+                    )}
                   </label>
                   <select
                     value={rideForm.rideType}
                     onChange={(e) => setRideForm({ ...rideForm, rideType: e.target.value })}
                     className="input-field"
                   >
-                    <option value="bike">Bike (₹35 base)</option>
-                    <option value="mini">Mini (₹55 base)</option>
-                    <option value="sedan">Sedan (₹90 base)</option>
-                    <option value="suv">SUV (₹130 base)</option>
+                    <option value="bike">{`Bike (${typeEstimates.bike ? `₹${typeEstimates.bike} est` : '₹35 base'})`}</option>
+                    <option value="mini">{`Mini (${typeEstimates.mini ? `₹${typeEstimates.mini} est` : '₹55 base'})`}</option>
+                    <option value="sedan">{`Sedan (${typeEstimates.sedan ? `₹${typeEstimates.sedan} est` : '₹90 base'})`}</option>
+                    <option value="suv">{`SUV (${typeEstimates.suv ? `₹${typeEstimates.suv} est` : '₹130 base'})`}</option>
                   </select>
                 </div>
               </div>
@@ -1026,7 +1170,7 @@ const RiderDashboard = () => {
                         {ride.status}
                       </span>
                       <span className="text-sm text-gray-600">
-                        {new Date(ride.createdAt).toLocaleDateString()}
+                        {new Date(ride.createdAt).toLocaleDateString()} • {new Date(ride.createdAt).toLocaleTimeString()}
                       </span>
                     </div>
                     <div className="space-y-2 text-sm">
@@ -1042,6 +1186,21 @@ const RiderDashboard = () => {
                         <span className="text-gray-600">{ride.rideType}</span>
                         <span className="font-bold text-primary-600">₹{ride.fare?.finalFare || ride.fare?.estimatedFare || ride.fare || '—'}</span>
                       </div>
+                      {ride.status === 'cancelled' && ride.cancelledBy === 'system' && ride.cancellationReason && (
+                        <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 mt-2">
+                          Cancelled by system: {ride.cancellationReason}
+                        </div>
+                      )}
+                      {ride.endTime && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          Ended: {new Date(ride.endTime).toLocaleDateString()} • {new Date(ride.endTime).toLocaleTimeString()}
+                        </div>
+                      )}
+                      {ride.status === 'driver-selected' && ride.driverSelectedAt && (
+                        <div className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-2 mt-2">
+                          Awaiting driver acceptance since {new Date(ride.driverSelectedAt).toLocaleTimeString()}
+                        </div>
+                      )}
                       {ride.status === 'completed' && ride.paymentStatus !== 'completed' && (
                         <div className="pt-3">
                           <button className="btn-primary" onClick={() => handlePayNow(ride._id, ride.fare?.finalFare || ride.fare?.estimatedFare || ride.fare)}>
@@ -1142,14 +1301,14 @@ const RiderDashboard = () => {
                 <User className="h-5 w-5 text-gray-400 mr-3" />
                 <div className="flex-1">
                   <div className="text-sm text-gray-600">Name</div>
-                  <div className="font-semibold">{user?.name || 'Not set'}</div>
+                  <div className="font-semibold text-gray-900">{user?.name || 'Not set'}</div>
                 </div>
               </div>
               <div className="flex items-center">
                 <Phone className="h-5 w-5 text-gray-400 mr-3" />
                 <div className="flex-1">
                   <div className="text-sm text-gray-600">Phone</div>
-                  <div className="font-semibold">{user?.phone || user?.email || 'Not set'}</div>
+                  <div className="font-semibold text-gray-900">{user?.phone || user?.email || 'Not set'}</div>
                 </div>
               </div>
               <div className="flex items-center">
@@ -1157,25 +1316,6 @@ const RiderDashboard = () => {
                 <div className="flex-1">
                   <div className="text-sm text-gray-600">Wallet Balance</div>
                   <div className="font-semibold text-green-600">₹{(user?.walletBalance || 0).toFixed(2)}</div>
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600 mb-2">Rating</div>
-                <div className="flex items-center gap-1">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star
-                      key={star}
-                      className={`h-5 w-5 cursor-pointer transition-colors ${
-                        star <= Math.round(user?.rating || 5)
-                          ? 'text-yellow-400 fill-yellow-400'
-                          : 'text-gray-300'
-                      }`}
-                      onClick={() => console.log(`Clicked star ${star}`)}
-                    />
-                  ))}
-                  <span className="ml-2 text-sm font-semibold text-gray-700">
-                    {user?.rating?.toFixed(1) || '5.0'}
-                  </span>
                 </div>
               </div>
             </div>

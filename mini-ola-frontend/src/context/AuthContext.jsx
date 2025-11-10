@@ -13,18 +13,18 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
-  const [token, setToken] = useState(localStorage.getItem('token'))
+  const [accessToken, setAccessToken] = useState(localStorage.getItem('accessToken') || localStorage.getItem('token'))
+  const [refreshToken, setRefreshToken] = useState(localStorage.getItem('refreshToken'))
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (token) {
-      // Persist token for client instance
-      client.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    if (accessToken) {
+      client.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`
       fetchProfile()
     } else {
       setLoading(false)
     }
-  }, [token])
+  }, [accessToken])
 
   const fetchProfile = async () => {
     try {
@@ -33,39 +33,74 @@ export const AuthProvider = ({ children }) => {
       const userData = response.data.data?.user || response.data.data || response.data.user || response.data
       console.log('Setting user:', userData)
       setUser(userData)
+      return userData
     } catch (error) {
       console.error('Failed to fetch profile:', error)
       logout()
+      return null
     } finally {
       setLoading(false)
     }
   }
 
   const login = async (email, password) => {
-    try {
-      const response = await api.login({ email, password })
-      const { token: t, user: u } = response.data.data
-      setToken(t)
+    // Normalize input similar to backend normalization
+    const normEmail = (email || '').trim().toLowerCase()
+    const payload = { email: normEmail, password }
+
+    const attempt = async (fn) => {
+      const response = await fn(payload)
+      const { accessToken: at, refreshToken: rt, user: u } = response.data.data
+      setAccessToken(at)
+      setRefreshToken(rt)
       setUser(u)
-      localStorage.setItem('token', t)
-      client.defaults.headers.common['Authorization'] = `Bearer ${t}`
-      return { success: true }
-    } catch (error) {
-      return { 
-        success: false, 
-        message: error.response?.data?.message || error.message || 'Login failed' 
+      localStorage.setItem('accessToken', at)
+      if (rt) localStorage.setItem('refreshToken', rt)
+      client.defaults.headers.common['Authorization'] = `Bearer ${at}`
+      return { success: true, role: u?.role }
+    }
+
+    try {
+      return await attempt(api.login)
+    } catch (err) {
+      const status = err?.response?.status
+      const msg = err?.response?.data?.message || err.message
+      // Fallback to driver on any auth failure (401) from rider login
+      if (status === 401) {
+        try {
+          return await attempt(api.loginDriver)
+        } catch (driverErr) {
+          return {
+            success: false,
+            message: driverErr?.response?.data?.message || driverErr.message || 'Login failed'
+          }
+        }
       }
+      return { success: false, message: msg || 'Login failed' }
     }
   }
 
   const register = async (userData) => {
     try {
-      const response = await api.register(userData)
-      const { token: t, user: u } = response.data.data
-      setToken(t)
-      setUser(u)
-      localStorage.setItem('token', t)
-      client.defaults.headers.common['Authorization'] = `Bearer ${t}`
+      // Normalize phone to 10 digits without symbols/spaces
+      if (userData?.phone) {
+        userData.phone = (userData.phone || '').replace(/\D/g, '')
+      }
+
+      let response
+      if (userData?.role === 'driver') {
+        response = await api.registerDriver(userData)
+      } else {
+        response = await api.register(userData)
+      }
+
+  const { accessToken: at, refreshToken: rt, user: u } = response.data.data
+  setAccessToken(at)
+  setRefreshToken(rt)
+  setUser(u)
+  localStorage.setItem('accessToken', at)
+  if (rt) localStorage.setItem('refreshToken', rt)
+  client.defaults.headers.common['Authorization'] = `Bearer ${at}`
       return { success: true }
     } catch (error) {
       return { 
@@ -75,21 +110,38 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      if (refreshToken) {
+        await api.logoutToken({ refreshToken })
+      }
+    } catch (e) {
+      // Ignore logout errors
+    }
     setUser(null)
-    setToken(null)
-    localStorage.removeItem('token')
+    setAccessToken(null)
+    setRefreshToken(null)
+    localStorage.removeItem('accessToken')
+    localStorage.removeItem('refreshToken')
+    localStorage.removeItem('token') // legacy cleanup
     delete client.defaults.headers.common['Authorization']
+  }
+
+  const refreshProfile = async () => {
+    // Force fetch user again and update state
+    return await fetchProfile()
   }
 
   const value = {
     user,
-    token,
+    accessToken,
+    refreshToken,
     loading,
     login,
     register,
     logout,
-    isAuthenticated: !!token,
+    refreshProfile,
+    isAuthenticated: !!accessToken,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

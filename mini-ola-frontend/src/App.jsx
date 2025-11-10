@@ -3,10 +3,19 @@ import Navbar from './components/Navbar'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import ForgotPassword from './pages/ForgotPassword'
 import RiderDashboard from './pages/RiderDashboard'
+import MyRides from './pages/MyRides'
+import Safety from './pages/Safety'
+import HelpSupport from './pages/HelpSupport'
+import SettingsPage from './pages/Settings'
 import DriverDashboard from './pages/DriverDashboard'
 import PaymentConfirm from './pages/PaymentConfirm'
 import Profile from './pages/Profile'
+import DriverHistory from './pages/DriverHistory'
+import DriverDocuments from './pages/DriverDocuments'
+import DriverAccount from './pages/DriverAccount'
+import DriverBank from './pages/DriverBank'
 import { AuthProvider } from './context/AuthContext'
 
 function App() {
@@ -18,9 +27,18 @@ function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/register" element={<Register />} />
             <Route path="/rider/dashboard" element={<RiderDashboard />} />
+            <Route path="/rides" element={<MyRides />} />
+            <Route path="/safety" element={<Safety />} />
+            <Route path="/help" element={<HelpSupport />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="/driver/dashboard" element={<DriverDashboard />} />
+            <Route path="/driver/history" element={<DriverHistory />} />
+            <Route path="/driver/documents" element={<DriverDocuments />} />
+            <Route path="/driver/account" element={<DriverAccount />} />
+            <Route path="/driver/bank" element={<DriverBank />} />
             <Route path="/payment/confirm" element={<PaymentConfirm />} />
             <Route path="/profile" element={<Profile />} />
           </Routes>
