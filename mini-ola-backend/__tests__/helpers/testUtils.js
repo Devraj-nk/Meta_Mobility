@@ -10,7 +10,9 @@ async function registerUser(app, userData) {
   
   return {
     user: res.body.data.user,
-    token: res.body.data.token,
+    token: res.body.data.accessToken, // Updated to use accessToken from refresh token implementation
+    accessToken: res.body.data.accessToken,
+    refreshToken: res.body.data.refreshToken,
   };
 }
 
@@ -24,7 +26,9 @@ async function loginUser(app, credentials) {
   
   return {
     user: res.body.data.user,
-    token: res.body.data.token,
+    token: res.body.data.accessToken, // Updated to use accessToken from refresh token implementation
+    accessToken: res.body.data.accessToken,
+    refreshToken: res.body.data.refreshToken,
   };
 }
 

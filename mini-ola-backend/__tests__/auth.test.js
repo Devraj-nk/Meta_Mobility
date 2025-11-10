@@ -34,7 +34,9 @@ describe('Auth flow', () => {
 
     expect(res.status).toBe(201);
     expect(res.body).toHaveProperty('success', true);
-    expect(res.body.data).toHaveProperty('token');
+    expect(res.body.data).toHaveProperty('accessToken');
+    expect(res.body.data).toHaveProperty('refreshToken');
+    expect(res.body.data).toHaveProperty('user');
   });
 
   test('Login -> 200 and returns token', async () => {
@@ -44,6 +46,8 @@ describe('Auth flow', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('success', true);
-    expect(res.body.data).toHaveProperty('token');
+    expect(res.body.data).toHaveProperty('accessToken');
+    expect(res.body.data).toHaveProperty('refreshToken');
+    expect(res.body.data).toHaveProperty('user');
   });
 });
