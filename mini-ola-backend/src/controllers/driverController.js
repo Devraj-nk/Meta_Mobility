@@ -122,6 +122,13 @@ const toggleAvailability = asyncHandler(async (req, res) => {
     );
   }
 
+  // If trying to go online while a ride is active, block it
+  if (typeof isAvailable === 'boolean' && isAvailable === true && driver.currentRide) {
+    return res.status(400).json(
+      formatError('Cannot go online while an active ride is assigned. Complete or clear the ride first.', 400)
+    );
+  }
+
   // Update availability only if provided explicitly
   if (typeof isAvailable === 'boolean') {
     driver.isAvailable = isAvailable;
@@ -140,7 +147,7 @@ const toggleAvailability = asyncHandler(async (req, res) => {
 
   res.json(
     formatSuccess(
-      `Driver is now ${isAvailable ? 'online' : 'offline'}`,
+      `Driver is now ${driver.isAvailable ? 'online' : 'offline'}`,
       { driver }
     )
   );
