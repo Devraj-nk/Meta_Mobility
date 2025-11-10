@@ -1,0 +1,17 @@
+extends: default
+
+rules:
+  # allow missing leading '---' document start marker for workflows
+  document-start: disable
+
+  # some editors on Windows use CRLF; avoid hard failing on new-lines
+  new-lines: disable
+
+  # allow longer lines in workflow files (expressions & health-cmds are long)
+  line-length:
+    max: 140
+    level: warning
+
+  # treat truthy usage as warning (some GH workflow keys use non-boolean tokens)
+  truthy:
+    level: warning
