@@ -72,7 +72,7 @@ jobs:
           npm test -- --testTimeout=30000 || true
 
       - name: Upload backend coverage (optional)
-        if: ${{ secrets.CODECOV_TOKEN != '' }}
+        continue-on-error: true
         uses: codecov/codecov-action@v4
         with:
           files: ./mini-ola-backend/coverage/coverage-final.json
