@@ -26,13 +26,6 @@ router.post(
 );
 
 /**
- * @route   GET /api/payments/:rideId
- * @desc    Get payment receipt
- * @access  Private
- */
-router.get('/:rideId', paymentController.getPaymentReceipt);
-
-/**
  * @route   GET /api/payments/history
  * @desc    Get payment history
  * @access  Private
@@ -46,6 +39,13 @@ router.get(
   validate,
   paymentController.getPaymentHistory
 );
+
+/**
+ * @route   GET /api/payments/:rideId
+ * @desc    Get payment receipt
+ * @access  Private
+ */
+router.get('/:rideId', paymentController.getPaymentReceipt);
 
 /**
  * @route   POST /api/payments/:rideId/refund
