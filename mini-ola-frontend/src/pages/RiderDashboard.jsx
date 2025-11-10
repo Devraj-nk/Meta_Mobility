@@ -25,12 +25,7 @@ const RiderDashboard = () => {
   const [locationInitialized, setLocationInitialized] = useState(false)
   const [typeEstimates, setTypeEstimates] = useState({})
   const [estimatingTypes, setEstimatingTypes] = useState(false)
-  // Driver selection state after requesting a ride
-  const [driverOptions, setDriverOptions] = useState([])
-  const [showDriverSelect, setShowDriverSelect] = useState(false)
-  const [rideIdForSelection, setRideIdForSelection] = useState(null)
-  const [selectingDriver, setSelectingDriver] = useState(null)
-  const [selectError, setSelectError] = useState(null)
+  // Deprecated: manual driver selection removed in favor of auto-assignment
   
   const [rideForm, setRideForm] = useState({
     pickupLat: 0,
@@ -39,7 +34,9 @@ const RiderDashboard = () => {
     dropoffLat: 0,
     dropoffLng: 0,
     dropoffAddress: '',
-    rideType: 'sedan'
+    rideType: 'sedan',
+    isGroupRide: false,
+    groupSize: 1
   })
 
   useEffect(() => {
@@ -106,7 +103,7 @@ const RiderDashboard = () => {
                 dropoffLat: rideForm.dropoffLat,
                 dropoffLng: rideForm.dropoffLng,
                 rideType: rt,
-                isGroupRide: false
+                isGroupRide: rt === 'bike' ? false : !!rideForm.isGroupRide
               })
               results[rt] = res.data?.data?.estimatedFare
             } catch (e) {
@@ -121,7 +118,36 @@ const RiderDashboard = () => {
     }, 500)
 
     return () => clearTimeout(t)
-  }, [rideForm.pickupLat, rideForm.pickupLng, rideForm.dropoffLat, rideForm.dropoffLng])
+  }, [rideForm.pickupLat, rideForm.pickupLng, rideForm.dropoffLat, rideForm.dropoffLng, rideForm.isGroupRide])
+
+  // Enforce group ride rules when ride type changes
+  useEffect(() => {
+    const maxForType = (type) => {
+      if (type === 'bike') return 1
+      if (type === 'mini') return 3
+      return 4 // sedan and suv
+    }
+    const max = maxForType(rideForm.rideType)
+    setRideForm((prev) => {
+      const next = { ...prev }
+      // Bikes cannot be group rides
+      if (prev.rideType === 'bike') {
+        next.isGroupRide = false
+        next.groupSize = 1
+      } else {
+        // Clamp group size
+        next.groupSize = Math.max(1, Math.min(prev.groupSize || 1, max))
+      }
+      return next
+    })
+  }, [rideForm.rideType])
+
+  // If group ride disabled manually, reset group size
+  useEffect(() => {
+    if (!rideForm.isGroupRide && rideForm.groupSize !== 1) {
+      setRideForm(prev => ({ ...prev, groupSize: 1 }))
+    }
+  }, [rideForm.isGroupRide])
 
   const getCurrentLocationOnLoad = () => {
     console.log('🔍 Requesting location...')
@@ -331,7 +357,7 @@ const RiderDashboard = () => {
         dropoffLat: rideForm.dropoffLat,
         dropoffLng: rideForm.dropoffLng,
         rideType: rideForm.rideType,
-        isGroupRide: false
+        isGroupRide: rideForm.rideType === 'bike' ? false : !!rideForm.isGroupRide
       })
       setFareEstimate(response.data.data)
     } catch (error) {
@@ -359,15 +385,16 @@ const RiderDashboard = () => {
     setBookingRide(true)
     
     try {
-      const response = await api.requestRide(rideForm)
+      // Request ride — system will auto-notify nearby available drivers
+      const response = await api.requestRide({
+        ...rideForm,
+        isGroupRide: rideForm.rideType === 'bike' ? false : !!rideForm.isGroupRide
+      })
       const data = response?.data?.data || {}
       const rideFromResp = data.ride
-      const driversFromResp = Array.isArray(data.drivers) ? data.drivers : []
-      // If we have drivers, prompt the rider to pick one
-      if (rideFromResp && driversFromResp.length > 0) {
-        setRideIdForSelection(rideFromResp._id)
-        setDriverOptions(driversFromResp)
-        setShowDriverSelect(true)
+      // Start polling for assignment if a ride was created
+      if (rideFromResp) {
+        setSearchingDriver(true)
       }
       
       // Keep pickup location but clear addresses and reset dropoff
@@ -383,7 +410,7 @@ const RiderDashboard = () => {
       setFareEstimate(null)
       fetchRideHistory()
       fetchActiveRide()
-      setSearchingDriver(true)
+      // Polling is handled by the activeRide effect
     } catch (error) {
       console.error('Failed to book ride:', error)
       const errorMsg = error.response?.data?.message || 'Failed to book ride'
@@ -400,25 +427,6 @@ const RiderDashboard = () => {
     }
   }
 
-  const handleSelectDriver = async (driverId) => {
-    if (!rideIdForSelection) return
-    setSelectError(null)
-    setSelectingDriver(driverId)
-    try {
-      await api.selectDriver(rideIdForSelection, { driverId })
-      // Close modal and refresh active ride status
-      setShowDriverSelect(false)
-      setDriverOptions([])
-      setRideIdForSelection(null)
-      await fetchActiveRide()
-      setSearchingDriver(true)
-    } catch (err) {
-      const msg = err?.response?.data?.message || err.message || 'Failed to select driver'
-      setSelectError(msg)
-    } finally {
-      setSelectingDriver(null)
-    }
-  }
 
   const handleCancelRide = async (rideId) => {
     try {
@@ -810,56 +818,7 @@ const RiderDashboard = () => {
         </div>
       )}
 
-      {/* Driver Selection Modal */}
-      {showDriverSelect && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold text-gray-900">Choose Your Driver</h2>
-              <button
-                onClick={() => setShowDriverSelect(false)}
-                className="text-gray-400 hover:text-gray-600 text-2xl"
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="text-sm text-gray-600 mb-4">
-              We found {driverOptions.length} nearby driver{driverOptions.length !== 1 ? 's' : ''} for your {rideForm.rideType} ride.
-              Pick one to send the request directly, or close to wait for any driver.
-            </p>
-            {selectError && (
-              <div className="bg-red-50 border border-red-200 text-red-700 rounded p-3 mb-3 text-sm">
-                {selectError}
-              </div>
-            )}
-            <div className="space-y-3">
-              {driverOptions.map((d) => (
-                <div key={d.id} className="border rounded-lg p-4 flex items-start justify-between">
-                  <div>
-                    <div className="font-semibold text-gray-900">{d.name} <span className="text-xs text-gray-500">({d.vehicleType?.toUpperCase()})</span></div>
-                    <div className="text-sm text-gray-600">{d.vehicleNumber || '—'} • ⭐ {d.rating || 0}</div>
-                    {Number.isFinite(d.distanceKm) && (
-                      <div className="text-xs text-gray-500 mt-1">~{d.distanceKm} km away</div>
-                    )}
-                  </div>
-                  <button
-                    disabled={!!selectingDriver}
-                    onClick={() => handleSelectDriver(d.id)}
-                    className="btn-primary whitespace-nowrap disabled:opacity-50"
-                  >
-                    {selectingDriver === d.id ? 'Selecting…' : 'Select'}
-                  </button>
-                </div>
-              ))}
-            </div>
-            <div className="mt-6 flex gap-3">
-              <button onClick={() => setShowDriverSelect(false)} className="btn-secondary flex-1">I'll wait for any driver</button>
-              <button onClick={() => { setShowDriverSelect(false); fetchActiveRide(); }} className="btn-primary flex-1">Continue</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Manual driver selection has been removed. The system auto-assigns by broadcasting to nearby drivers. */}
 
       <div className="grid lg:grid-cols-3 gap-8">
         {/* Book Ride Section */}
@@ -1091,6 +1050,42 @@ const RiderDashboard = () => {
                     <option value="suv">{`SUV (${typeEstimates.suv ? `₹${typeEstimates.suv} est` : '₹130 base'})`}</option>
                   </select>
                 </div>
+                {/* Group Ride Toggle */}
+                {rideForm.rideType !== 'bike' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Group Ride Option</label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRideForm(prev => ({ ...prev, isGroupRide: !prev.isGroupRide }))}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${rideForm.isGroupRide ? 'bg-green-600 text-white border-green-600' : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'}`}
+                      >
+                        {rideForm.isGroupRide ? '✓ Group Ride Enabled' : 'Enable Group Ride'}
+                      </button>
+                      {rideForm.isGroupRide && (
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs text-gray-600">Passengers (incl. you)</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={rideForm.rideType === 'mini' ? 3 : 4}
+                            value={rideForm.groupSize}
+                            onChange={(e) => {
+                              const raw = parseInt(e.target.value || '1', 10)
+                              const max = rideForm.rideType === 'mini' ? 3 : 4
+                              const clamped = Math.max(1, Math.min(raw, max))
+                              setRideForm(prev => ({ ...prev, groupSize: clamped }))
+                            }}
+                            className="w-20 input-field text-sm"
+                          />
+                        </div>
+                      )}
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500">
+                      {rideForm.rideType === 'mini' ? 'Max 3 passengers (including you).' : 'Max 4 passengers (including you).'} Group rides apply a flat 20% fare discount.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Location Summary */}
