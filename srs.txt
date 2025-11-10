@@ -1,0 +1,275 @@
+Software Requirements Specification (SRS) Template
+
+
+Project: A cab aggregator system (Mini Ola, Uber, etc)
+Version: 1.0
+Authors: Dr. Sudeepa Roy Dey
+Chinthan K [PES2UG23CS155]
+Christananda B [PES2UG23CS158]
+Devraj Ishwar Naik [Leader][PES2UG23CS167]
+Chethan S [PES2UG23CS150]
+Date: 18-08-2025
+Status: Model Answer / Approved
+
+
+Revision history
+Version	Date	Author	Change summary	Approval
+1.0	18-08-2025	Instructor	SRS with diagrams embedded	
+
+
+Approvals
+Role	Name	Signature / Email	Date
+Course Coordinator			
+
+
+Table of Contents
+
+1. Introduction
+2. Overall description
+3. External interfaces
+4. System features (detailed)
+5. Non-functional requirements (detailed)
+6. Quality attributes & Acceptance tests
+7. UML Use-Case Diagram
+8. Requirements Traceability Matrix (RTM)
+
+1. Introduction
+1.1 Purpose
+This document specifies the Software Requirements for a Web-based Cab Aggregator System ("the System"), similar in concept to Ola/Uber but implemented primarily as a web app. It defines functional and non-functional requirements, external interfaces, constraints, and verification criteria for stakeholders including engineering, QA, product, and operations.
+1.2 Scope
+The System enables Riders to request on-demand trips, Drivers to accept and fulfill trips, and Admin/Operations to monitor marketplace health—all through a responsive web application. It covers rider/driver web portals, trip lifecycle management, pricing and payments, and a management console. Out of scope: third-party payment processor internals, telecom provider infrastructure, and any offline fleet management not integrated via APIs.
+1.3 Audience
+•	Developers & QA: implement and test the web app.
+•	Operations/Admin Teams: monitor and manage users, trips, and payments.
+•	Instructors/Evaluators: assess design and implementation.
+•	End-Users: Riders and Drivers accessing the platform via web browsers.
+1.4 Definitions & Acronyms
+•	Rider: End user booking a trip.
+•	Driver/Partner: Verified driver accepting trips.
+•	ETA: Estimated Time of Arrival.
+•	KYC: Know Your Customer (identity verification).
+•	OTP: One-Time Password (trip start or login verification).
+•	PSP: Payment Service Provider / Gateway.
+
+2. Overall Description
+2.1 Product Perspective
+The System is a responsive web application consisting of:
+•	Rider Portal: Trip booking, live tracking, payments, and feedback.
+•	Driver Portal: Trip requests, navigation info, earnings, and status management.
+•	Third-Party Integrations: Maps, payment gateways, SMS/email providers.
+2.2 Major Product Functions
+•	Account & Identity: Web sign-up/login (email/phone OTP), KYC for drivers, profile management.
+•	Ride Booking & Matching: Pickup/drop selection, fare estimate, ride confirmation, driver assignment.
+•	Group Rides: Riders traveling in the same direction can share a cab, reducing costs and carbon footprint.
+•	Navigation & Trip Lifecycle: Map-based navigation (via integration), OTP-based trip start, live trip status, trip completion.
+•	Payments: Fare estimate, card/UPI/cash options.
+•	Safety: SOS button (web shortcut), share-trip via link, call masking.
+•	Feedback: Ratings, reviews, trip issue reporting.
+•	Support: Web help center, dispute submission, admin responses.
+•	Driver Operations: Online/offline toggle, trip acceptance, earnings dashboard.
+2.3 User Roles and Characteristics
+•	Rider: Web-savvy expects easy booking, transparent pricing, and reliable service. May also be motivated by eco-friendly or cost-sharing options like group rides.
+•	Driver/Partner: Needs simple trip acceptance, basic navigation, and earnings visibility. Motivated by gamified incentives.
+2.4 Operating Environment
+•	Web Browsers: Chrome.
+•	Backend: Cloud-hosted server with REST APIs, relational DB.
+•	Network: Requires internet connectivity; handle low bandwidth with graceful fallbacks, including a basic offline booking queue that stores requests and processes them when connectivity returns.
+2.5 Constraints
+•	Security: HTTPS/TLS 1.2+, password hashing, OTP verification.
+•	Payments: Integration with PSPs; avoid storing sensitive card details.
+•	Data Privacy: Compliance with basic data protection regulations.
+•	Scalability: Should handle moderate concurrent users (student scale).
+•	Novelty Constraints: Innovative yet feasible features like group rides, gamification, and chatbot support must remain lightweight and achievable for a student project.
+
+3. External Interface Requirements
+3.1 User Interfaces
+Rider Web App
+•	Home: Pickup/drop fields with autocomplete, map preview.
+•	Fare estimate & ride type selection.
+•	Driver details card (photo, rating, vehicle).
+•	Live trip tracking and SOS button.
+•	Post-trip: Receipt, feedback form.
+Driver Web App
+•	Login status.
+•	Online/Offline toggle.
+•	Trip request popup with accept/reject.
+•	Simple map preview and route instructions (via integration).
+•	Earnings summary page with gamification badges.
+3.2 Hardware Interfaces
+•	User Devices: Desktop/laptop browser.
+•	Server: local machine for testing.
+3.3 Software Interfaces
+•	Maps API: Geocoding, routing, ETA calculation.
+•	Payment Gateway: Transaction authorization and refunds.
+•	Messaging Services: Email/SMS for OTP and notifications.
+•	Database: Relational DB for user/trip storage.
+3.4 Communications
+•	Protocols: HTTPS/TLS 1.2+.
+•	Data Format: JSON over REST APIs.
+•	Real-Time Updates: Web Sockets or polling for trip status.
+•	Resilience: Basic retry for failed requests; offline booking queue for temporary connectivity loss.
+
+4. System features (detailed)
+Each requirement below includes acceptance criteria and a reference test case.
+
+4.1 User Registration & Authentication
+•	Description: New users (riders/drivers) shall be able to create an account using email/phone and password. Login must be authenticated securely.
+•	Inputs: Name, Email/Phone, Password, Vehicle details (for drivers).
+•	Outputs: Account created confirmation, Login success/failure message.
+•	Preconditions: User has valid device and internet connection.
+•	Postconditions: User profile stored in system; authenticated session started.
+
+4.2 Ride Booking
+•	Description: Riders can search for available cabs by entering pickup and drop-off locations. The system will assign the nearest available driver.
+•	Inputs: Pickup location, Destination location, Ride type (e.g., Mini, Sedan, Bike).
+•	Outputs: Available cab details, estimated fare, Estimated time of arrival (ETA).
+•	Preconditions: Rider must be logged in and have location services enabled.
+•	Postconditions: Booking created; driver notified of ride request.
+
+4.3 Driver Module
+•	Description: Drivers can receive ride requests, accept/reject them, and navigate to pickup and drop-off points.
+•	Inputs: Driver availability (Online/Offline), Ride request notification.
+•	Outputs: Trip confirmation, Navigation directions, Payment summary.
+•	Preconditions: Driver logged in and marked “Available.”
+•	Postconditions: Ride assigned and updated in system.
+
+4.4 Ride Tracking (Map Integration)
+•	Description: Both rider and driver can view real-time ride status and location updates on the map.
+•	Inputs: GPS location data of driver.
+•	Outputs: Live map updates on rider and driver apps.
+•	Preconditions: Active ride in progress.
+•	Postconditions: Ride status updated continuously until trip completion.
+
+4.5 Fare Calculation & Payment
+•	Description: The system calculates ride fare based on distance, time, and ride type. Payment can be done through cash or integrated payment gateway (demo level).
+•	Inputs: Ride distance, Time taken, Selected ride type, Payment method.
+•	Outputs: Fare amount, Payment confirmation.
+•	Preconditions: Valid booking exists.
+•	Postconditions: Payment recorded in system; receipt sent to rider.
+
+4.6 Ride History
+•	Description: Riders and drivers can view past trips including fare, time, and route.
+•	Inputs: User request to view history.
+•	Outputs: List of previous rides with details.
+•	Preconditions: User must be logged in.
+•	Postconditions: History displayed successfully.
+
+4.7 Notifications
+•	Description: Users (riders and drivers) will receive notifications for ride confirmations, cancellations, payments, and promotions.
+•	Inputs: System-generated events (ride booked, driver assigned, etc.).
+•	Outputs: Push notification / SMS / Email alerts.
+•	Preconditions: User registered with valid contact details.
+•	Postconditions: Notification delivered.
+
+
+Functional Requirements Table:
+
+Req ID	Requirement 	Type	Priority	Source/Stakeholder	Acceptance criteria / Test case ref	Comments / Dependencies
+CAB-F-001	The system shall allow users to register and log in securely.	Functional	High	Users	AC-001: User can create account and log in with correct credentials. Test: TC-Auth-01	Requires DB for user storage
+CAB-F-002	The system shall allow passengers to book a cab by entering pickup and drop locations.	Functional	High	Passengers	AC-002: Booking succeeds if driver available. Test: TC-Booking-01	Maps API required
+CAB-F-003	The system shall match riders with nearby available drivers.	Functional	High	Business	AC-003: Nearest driver assigned within defined radius. Test: TC-Match-01	Depends on location data
+CAB-F-004	The system shall display fare estimate before ride confirmation.	Functional	Medium	Passengers	AC-004: Fare estimate shown based on distance and base fare rules. Test: TC-Fare-01	Requires Maps API
+CAB-F-005	The system shall support Group Ride option where multiple users share the same ride.	Functional	Medium	Passengers	AC-005: Multiple users can be assigned to one cab with reduced fare. Test: TC-GroupRide-01	Depends on routing logic
+CAB-F-006	The system shall process payments via integrated PSPs.	Functional	High	Business	AC-006: Payment succeeds with PSP test mode; no card data stored. Test: TC-Pay-01	Depends on PSP integration
+CAB-F-007	The system shall allow drivers to update availability (online/offline).	Functional	High	Drivers	AC-007: Driver can toggle availability. Test: TC-Driver-01	Requires driver login
+CAB-F-008	The system shall provide live tracking of driver’s location to passenger.	Functional	High	Passengers	AC-008: Map updates in near real-time during ride. Test: TC-Track-01	Requires WebSocket/Maps API
+CAB-F-009	The system shall allow passengers to view ride history and payment receipts.	Functional	Medium	Passengers	AC-09: Past rides visible with fare details. Test: TC-History-01	Requires DB logging
+
+5. Non-Functional Requirements (detailed):
+Non-Functional Requirement Table:
+
+Req ID	Requirement	Category	Priority	Acceptance criteria / Measurement
+CAB-NF-001	System shall respond to ride search/booking requests in ≤ 10 seconds.	Performance	High	90% of requests under normal load ≤ 10s. Test: TC-Perf-01
+CAB-NF-002	All sensitive user data (passwords, tokens) shall be encrypted (AES-256).	Security	High	Security audit checklist pass. Test: TC-Sec-01
+CAB-NF-003	System shall handle at least 2 concurrent users for demo purposes.	Scalability	Medium	Load test with 2 users succeeds. Test: TC-Load-01
+CAB-NF-004	System shall be accessible via modern browsers (Chrome).	Usability	Medium	Cross-browser testing passed. Test: TC-UX-01
+CAB-NF-005	System shall comply with PSP requirements.	Compliance	High	PSP compliance validation. Test: TC-PaySec-01
+CAB-NF-006	Map rendering and driver tracking refresh rate shall be ≤ 10 seconds.	Performance/UX	Medium	Map updates visible within 10s interval. Test: TC-Track-02
+
+5.1 Security
+	5.1.1 Security Objectives
+•	Protect User Data Privacy – Ensure that personal information (name, phone, location, payment info) is stored and transmitted securely.
+•	Secure Authentication & Access Control – Only authorized users (riders, drivers, admins) can access their respective features through strong login mechanisms.
+•	Ensure Transaction Security – Safeguard payment-related processes by using secure channels and avoiding storage of sensitive card details.
+•	Maintain Data Integrity & Trust – Prevent unauthorized modification of ride details, fares, and transaction records.
+	05.1.2 Security Requirements
+
+Req ID	Requirement (shall...)	Type	Priority	Acceptance criteria / Test case ref
+CAB-SR-001	TLS 1.2+ mandatory for all network connections.	Security	High	Verified via HTTPS-only endpoints; Test: TC-Sec-01
+CAB-SR-002	User passwords shall be stored using salted hashing (e.g., bcrypt/argon2)	Security	High	DB inspection shows no plain-text passwords; Test: TC-Sec-02
+CAB-SR-003	System shall enforce authentication tokens (e.g., JWT) for session management.	Security	High	Unauthorized access blocked; Test: TC-Sec-03
+CAB-SR-004	Sensitive user inputs (payment, login) shall be transmitted only over secure forms with input validation.	Security	Medium	Penetration test blocks SQLi/XSS; Test: TC-Sec-04
+
+6. Quality attributes & Acceptance tests
+
+Req ID	Quality Attribute	Acceptance Test
+CAB-F-001 (User login/registration)	Security, Usability	TC-Auth-01: Verify user can sign up/login securely with OTP & password.
+CAB-F-002 (Ride booking)	Performance	TC-Booking-01: Ride request completes ≤ 10s with driver assigned if available.
+CAB-F-003 (Matching)	Reliability	TC-Match-01: Nearest driver within radius is correctly assigned.
+CAB-F-004 (Fare estimate)	Accuracy	TC-Fare-01: Fare displayed matches formula (distance × base fare).
+CAB-F-005 (Ride confirmation notification)	Usability, Reliability	C-Notify-01: Rider receives push/SMS confirming driver details & pickup time. TC-Notify-02: Driver receives notification with rider details & pickup location.
+CAB-F-006 (Payment)	Security, Compliance	TC-Pay-01: Payment succeeds
+CAB-F-007 (Tracking)	 Reliability	TC-Track-01: Rider sees location updates interval during trip.
+CAB-F-008 (History)	Usability	TC-History-01: Past trips appear with correct fare/time data.
+CAB-NF-001 (Response time)	Performance	TC-Perf-01: 90% of booking requests return in ≤ 10s
+CAB-NF-002 (Encryption)	Security	TC-Sec-01: Audit confirms HTTPS & AES-256 encryption enabled.
+CAB-NF-003 (Concurrency)	Scalability	TC-Load-01: 2 concurrent users can book & ride without errors.
+CAB-NF-004 (Cross-browser)	Usability	TC-UX-01: Web app functions correctly in Chrome.
+
+7. System models and diagrams
+7.1 UML Use-Case diagram
+
+1)	UML Use Case 1 - Rider’s Perspective:
+
+ 
+
+2)	UML Use Case 2 - driver’s Perspective:
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+8. Requirements Traceability Matrix (RTM)
+
+Req ID	Requirement short	Section ref / Design Spec	Module	Test case(s)	Status (N/P/A)	Comments
+CAB-F-001	Secure Registration & Login	4.1 / DS-Auth-01	AuthModule	TC-Auth-01, TC-Auth-02	N	Verify login & signup
+CAB-F-002	Passenger Book Cab (pickup/drop)	4.2 / DS-Ride-01	RideModule	TC-Ride-01	N	
+CAB-F-003	Match Rider with Nearby Driver	4.2 / DS-Match-01	MatchModule	TC-Match-01, TC-Match-02	N	
+CAB-F-004	Display Fare Estimate	4.2 / DS-Fare-01	FareModule	TC-Fare-01	N	
+CAB-F-005	Group Ride (shared ride option)	4.2 / DS-GroupRide-01	RideModule	TC-Group-01, TC-Group-02	N	
+CAB-F-006	Process Payments via PSP	4.3 / DS-Payment-01	PaymentModule	TC-Pay-01, TC-Pay-02	N	Test multiple PSPs
+CAB-F-007	Driver Update Availability (online/offline)	4.4 / DS-Driver-01	DriverModule	TC-Driver-01	N	
+CAB-F-008	Live Tracking of Driver	4.5 / DS-Tracking-01	TrackingModule	TC-Track-01, TC-Track-02	N	Use GPS mock testing
+CAB-F-009	Passenger View Ride History & Receipts	4.6 / DS-History-01	HistoryModule	TC-History-01	N	
+CAB-NF-001	Ride search/booking ≤ 10 sec	5.1 / DS-Perf-01	CoreAPI / UI	TC-Perf-01	N	Load/performance testing required
+CAB-NF-002	Encrypt sensitive data (AES-256)	5.2 / DS-Sec-01	AuthModule	TC-Sec-01	N	Covers passwords & tokens storage
+CAB-NF-003	Handle ≥ 2 concurrent users (demo)	5.3 / DS-Perf-02	CoreAPI	TC-Perf-02	N	For prototype scalability
+CAB-NF-004	Accessible on modern browsers (Chrome)	5.4 / DS-UI-01	WebUI	TC-UI-01	N	Browser compatibility testing
+CAB-NF-005	Comply with PSP requirements	5.5 / DS-Payment-02	PaymentModule	TC-Pay-03	N	PSP API compliance & audits
+CAB-NF-006	Map refresh rate ≤ 10 sec	5.6 / DS-Tracking-02	TrackingModule	TC-Track-03	N	GPS polling + map rendering test
+CAB-SR-001	Enforce TLS 1.2+ on all network connections	6.1 / DS-Sec-02	Network Layer	TC-Sec-02	N	Verify TLS handshake & SSL config
+CAB-SR-002	Store passwords with salted hashing (bcrypt/argon2)	6.2 / DS-Auth-02	AuthModule	TC-Auth-02	N	DB inspection + hash validation
+CAB-SR-003	Enforce JWT tokens for session management	6.3 / DS-Auth-03	SessionModule	TC-Auth-03	N	Check token issuance & expiry handling
+CAB-SR-004	Secure input transmission & validation (login/pay)	6.4 / DS-UI-02	WebUI / Payment	TC-UI-02, TC-Pay-01	N	Validate HTTPS, input sanitization
+•	Suspend testing if:
+o	Critical Build Failures
+o	Environment/Infrastructure Unavailability
+•	Resume testing if:
+o	Blocking defects are resolved
+o	Environment Restored

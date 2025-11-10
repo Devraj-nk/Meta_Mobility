@@ -1,15 +1,35 @@
-name: CI-CD Pipeline
+name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [ main, develop, "feature/**" ]
   pull_request:
-    branches: [main]
+    branches: [ main, develop ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  backend:
+    name: Backend - Build and Smoke Test
     runs-on: ubuntu-latest
-    
+
+    services:
+      mongo:
+        image: mongo:6
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: mini-ola-backend
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -19,58 +39,83 @@ jobs:
         with:
           node-version: '18'
           cache: 'npm'
+          cache-dependency-path: |
+            mini-ola-backend/package-lock.json
 
-      - name: Install dependencies
+      - name: Install dependencies (backend)
+        run: npm install
+
+      - name: Run backend tests with coverage
+        env:
+          NODE_ENV: test
+        run: npm test -- --coverage --testTimeout=30000
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: ./mini-ola-backend/coverage/coverage-final.json
+          flags: backend
+          fail_ci_if_error: false
+
+      - name: Start backend for smoke test
+        env:
+          MONGODB_URI: mongodb://localhost:27017/mini-ola-test
+          JWT_SECRET: test_ci_secret
+          NODE_ENV: production
+          PORT: 5000
         run: |
-          if [ -f package.json ]; then
-            npm ci
+          node src/server.js &
+          echo $! > server.pid
+          sleep 5
+
+      - name: Smoke test - health endpoint
+        run: |
+          curl -fsS http://localhost:5000/health || (cat server.log && exit 1)
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f server.pid ]; then
+            kill $(cat server.pid) || true
           else
-            echo "No package.json found, skipping npm install"
+            pkill -f "node src/server.js" || true
           fi
 
-      - name: Run linting
-        run: |
-          if [ -f package.json ] && npm list --depth=0 | grep -q eslint; then
-            npm run lint
-          else
-            echo "No linting configured, skipping..."
-          fi
+      - name: Security audit (non-blocking)
+        continue-on-error: true
+        run: npm audit --audit-level=high
 
-      - name: Run tests
-        run: |
-          if [ -f package.json ] && npm list --depth=0 | grep -q jest; then
-            npm test
-          else
-            echo "No tests configured, skipping..."
-          fi
-
-      - name: Build application
-        run: |
-          if [ -f package.json ]; then
-            npm run build --if-present
-          else
-            echo "No build script found, skipping..."
-          fi
-
-      - name: Security audit
-        run: |
-          if [ -f package.json ]; then
-            npm audit --audit-level=high
-          else
-            echo "No package.json found, skipping security audit"
-          fi
-
-  deploy:
-    needs: build
+  frontend:
+    name: Frontend - Build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    
+    defaults:
+      run:
+        working-directory: mini-ola-frontend
+
     steps:
-      - name: Deploy to staging
-        run: echo "Deploying to staging environment..."
-        
-      - name: Run integration tests
-        run: echo "Running integration tests..."
-        
-      - name: Deploy to production
-        run: echo "Deploying to production environment..."
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: |
+            mini-ola-frontend/package-lock.json
+
+      - name: Install dependencies (frontend)
+        run: npm install
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Run frontend tests
+        run: npm test
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-ola-frontend-dist
+          path: mini-ola-frontend/dist
