@@ -8,6 +8,10 @@ async function registerUser(app, userData) {
     .post('/api/auth/register')
     .send(userData);
   
+  if (!res.body?.data) {
+    throw new Error(`Registration failed: ${res.status} ${JSON.stringify(res.body)}`);
+  }
+  
   return {
     user: res.body.data.user,
     token: res.body.data.accessToken, // Updated to use accessToken from refresh token implementation
@@ -23,6 +27,10 @@ async function loginUser(app, credentials) {
   const res = await request(app)
     .post('/api/auth/login')
     .send(credentials);
+  
+  if (!res.body?.data) {
+    throw new Error(`Login failed: ${res.status} ${JSON.stringify(res.body)}`);
+  }
   
   return {
     user: res.body.data.user,
