@@ -71,8 +71,7 @@ jobs:
         run: |
           # Run tests that don't require private secrets; some tests may fail/skip
           npm test -- --testTimeout=30000 || true
-
-
+      
 
       - name: Start backend for smoke test
         env:

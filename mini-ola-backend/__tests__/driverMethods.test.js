@@ -29,7 +29,10 @@ describe('Driver Model Methods', () => {
     });
 
     driver = await Driver.create({
-      user: user._id,
+      name: 'Test Driver',
+      email: 'methods_driver@test.com',
+      phone: '9876543222',
+      password: 'password123',
       vehicleType: 'sedan',
       vehicleNumber: 'KA01AB1234',
       vehicleModel: 'Honda City',
