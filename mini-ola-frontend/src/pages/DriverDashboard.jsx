@@ -22,6 +22,7 @@ const DriverDashboard = () => {
     vehicleColor: ''
   })
   const [rideOffers, setRideOffers] = useState([])
+  const [activeRide, setActiveRide] = useState(null)
   const pollingRef = useRef(null)
 
   useEffect(() => {
@@ -34,6 +35,10 @@ const DriverDashboard = () => {
       return
     }
     fetchDriverProfile()
+    fetchActiveRide()
+    // Refresh to reflect currentRide
+    fetchDriverProfile()
+    fetchActiveRide()
     getCurrentLocationOnLoad()
   }, [isAuthenticated, user, navigate])
 
@@ -109,6 +114,16 @@ const DriverDashboard = () => {
     }
   }
 
+  // Check if driver has an active ride, even if profile payload doesn't include it
+  const fetchActiveRide = async () => {
+    try {
+      const res = await api.driverActiveRide()
+      setActiveRide(res.data?.data?.ride || null)
+    } catch {
+      setActiveRide(null)
+    }
+  }
+
   // Fetch ride history to compute KPIs (only completed & paid rides contribute to earnings, rides)
   const computeKPIs = async () => {
     try {
@@ -151,6 +166,18 @@ const DriverDashboard = () => {
     }
   }, [isAuthenticated, user])
 
+  // While an active ride exists, keep polling to ensure the Complete button state shows up promptly
+  useEffect(() => {
+    if (!driverProfile) return
+    const hasRide = !!driverProfile.currentRide || !!activeRide
+    if (!hasRide) return
+    const i = setInterval(() => {
+      fetchActiveRide()
+      fetchDriverProfile()
+    }, 5000)
+    return () => clearInterval(i)
+  }, [driverProfile?.currentRide, activeRide?._id])
+
   const handleUpdateVehicle = async () => {
     try {
       // Note: You'll need to add an API endpoint in the backend for this
@@ -170,7 +197,12 @@ const DriverDashboard = () => {
   const toggleAvailability = async () => {
     setUpdatingStatus(true)
     try {
-      const newStatus = !driverProfile?.isAvailable
+      if (hasActiveRide) {
+        alert('You have an active ride. Complete or clear it before going online again.')
+        setUpdatingStatus(false)
+        return
+      }
+      const newStatus = !isOnline
       
       // Get current location when going online
       if (newStatus && 'geolocation' in navigator) {
@@ -273,6 +305,10 @@ const DriverDashboard = () => {
 
   const kycStatus = driverProfile?.kycStatus || 'pending'
   const isKycApproved = kycStatus === 'approved'
+  const hasActiveRide = !!driverProfile?.currentRide || !!activeRide
+  const activeRideId = activeRide?._id || driverProfile?.currentRide || null
+  // Consider online only when available and no active ride
+  const isOnline = !!driverProfile?.isAvailable && !hasActiveRide
   // Use driver profile rating; clamp between 0 and 5, default 0
   const rating = Math.max(0, Math.min(5, Number(driverProfile?.rating) || 0))
 
@@ -382,29 +418,31 @@ const DriverDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900">
-                  {driverProfile?.isAvailable ? 'You are Online' : 'You are Offline'}
+                  {isOnline ? 'You are Online' : hasActiveRide ? 'Active Ride - You are Offline' : 'You are Offline'}
                 </h2>
                 <p className="text-gray-600 mt-1">
-                  {driverProfile?.isAvailable 
-                    ? 'Ready to accept rides' 
-                    : 'Turn on to start accepting rides'}
+                  {isOnline
+                    ? 'Ready to accept rides'
+                    : hasActiveRide
+                      ? 'You have an active ride. You are automatically offline until it is completed.'
+                      : 'Turn on to start accepting rides'}
                 </p>
               </div>
               <button
                 onClick={toggleAvailability}
-                disabled={updatingStatus || !isKycApproved}
+                disabled={updatingStatus || !isKycApproved || hasActiveRide}
                 className={`relative inline-flex h-16 w-32 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                  driverProfile?.isAvailable
+                  isOnline
                     ? 'bg-primary-600 focus:ring-primary-500'
                     : 'bg-gray-300 focus:ring-gray-500'
-                } ${(!isKycApproved || updatingStatus) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                } ${(!isKycApproved || updatingStatus || hasActiveRide) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
               >
                 <span
                   className={`inline-flex h-12 w-12 transform items-center justify-center rounded-full bg-white shadow-lg transition-transform ${
-                    driverProfile?.isAvailable ? 'translate-x-16' : 'translate-x-2'
+                    isOnline ? 'translate-x-16' : 'translate-x-2'
                   }`}
                 >
-                  {driverProfile?.isAvailable ? (
+                  {isOnline ? (
                     <Power className="h-6 w-6 text-primary-600" />
                   ) : (
                     <PowerOff className="h-6 w-6 text-gray-600" />
@@ -414,7 +452,7 @@ const DriverDashboard = () => {
             </div>
 
             {/* Complete/Clear Active Ride Button */}
-            {driverProfile?.currentRide && (
+            {hasActiveRide && activeRideId && (
               <div className="mt-4 p-4 bg-green-50 border border-green-300 rounded-lg">
                 <div className="flex items-start gap-2">
                   <div className="flex-1">
@@ -425,14 +463,29 @@ const DriverDashboard = () => {
                     <div className="flex gap-2">
                       <button
                         onClick={async () => {
+                          if (!activeRideId) return
                           if (confirm('Complete this ride?\n\nThis will:\n• Mark the ride as completed\n• Update your earnings\n• Make you available for new rides\n• Notify the rider')) {
                             try {
-                              const response = await api.clearStuckRide()
-                              alert('✅ Ride completed successfully!\n\n' + 
-                                    (response.data?.data?.message || 'You are now available for new rides.'))
-                              fetchDriverProfile()
+                              // Call driverComplete endpoint (proper completion)
+                              await api.driverComplete(activeRideId, { actualFare: undefined })
+                              alert('✅ Ride marked completed! You are now available for new rides.')
+                              await fetchActiveRide()
+                              await fetchDriverProfile()
                             } catch (error) {
-                              alert('❌ ' + (error.response?.data?.message || 'Failed to complete ride'))
+                              const msg = error.response?.data?.message || error.message || 'Failed to complete ride'
+                              // Fallback: if ride isn't in-progress, use clearStuckRide to finish
+                              if (/not in progress/i.test(msg)) {
+                                try {
+                                  await api.clearStuckRide()
+                                  alert('✅ Ride completed and cleared!')
+                                  await fetchActiveRide()
+                                  await fetchDriverProfile()
+                                } catch (e2) {
+                                  alert('❌ ' + (e2.response?.data?.message || e2.message || 'Failed to complete ride'))
+                                }
+                              } else {
+                                alert('❌ ' + msg)
+                              }
                             }
                           }
                         }}
@@ -447,6 +500,7 @@ const DriverDashboard = () => {
                               await api.clearStuckRide()
                               alert('✅ Ride cleared!')
                               fetchDriverProfile()
+                              fetchActiveRide()
                             } catch (error) {
                               alert('❌ ' + (error.response?.data?.message || 'Failed to clear ride'))
                             }
@@ -496,8 +550,9 @@ const DriverDashboard = () => {
                                 if (!otp) return
                                 const resp = await api.driverAccept(r._id, { otp })
                                 alert('✅ Ride accepted after OTP verification!')
-                                // Refresh profile to reflect currentRide
-                                fetchDriverProfile()
+                                // Refresh profile & active ride to surface completion controls immediately
+                                await fetchDriverProfile()
+                                await fetchActiveRide()
                               } catch (err) {
                                 const status = err.response?.status
                                 let msg = err.response?.data?.message
@@ -507,8 +562,9 @@ const DriverDashboard = () => {
                                   else msg = err.message || 'Failed to accept ride'
                                 }
                                 alert(msg)
-                                // Refresh offers
+                                // Refresh offers and active ride state
                                 try { const rr = await api.driverRideRequests(); setRideOffers(rr.data?.data?.requests || []) } catch {}
+                                try { await fetchActiveRide() } catch {}
                               }
                             }}
                             className="btn-primary text-sm"

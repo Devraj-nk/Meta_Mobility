@@ -95,7 +95,6 @@ export const api = {
   // Rider
   fareEstimate: (payload) => client.post('/rides/estimate', payload),
   requestRide: (payload) => client.post('/rides/request', payload),
-  selectDriver: (rideId, payload) => client.put(`/rides/${rideId}/select-driver`, payload),
   activeRide: () => client.get('/rides/active'),
   rideHistory: (params) => client.get('/rides/history', { params }),
   rideDetails: (id) => client.get(`/rides/${id}`),
