@@ -25,7 +25,8 @@ describe('POST /api/auth/login (rider)', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.data.token).toBeDefined();
+    expect(res.body.data.accessToken).toBeDefined();
+    expect(res.body.data.refreshToken).toBeDefined();
     expect(res.body.data.user.role).toBe('rider');
   });
 
