@@ -31,10 +31,10 @@ router.post(
     body('password')
       .notEmpty().withMessage('Password is required')
       .isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-    // Only riders allowed in this collection
+    // Allow rider and driver registrations (driver also supported via /register-driver endpoint)
     body('role')
       .optional()
-      .equals('rider').withMessage('Only rider registrations are allowed')
+      .isIn(['rider', 'driver']).withMessage('Only rider and driver registrations are allowed')
   ],
   validate,
   authController.register
