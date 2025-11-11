@@ -1,7 +1,12 @@
-import { render, screen } from '@testing-library/react';
-import Home from './Home';
+import { render, screen } from '@testing-library/react'
+import { BrowserRouter } from 'react-router-dom'
+import Home from './Home'
 
-test('renders Welcome text on Home page', () => {
-  render(<Home />);
-  expect(screen.getByText(/Welcome/i)).toBeInTheDocument();
-});
+test('renders hero heading on Home page', () => {
+  render(
+    <BrowserRouter>
+      <Home />
+    </BrowserRouter>
+  )
+  expect(screen.getByText(/Your Ride, Your Way/i)).toBeInTheDocument()
+})

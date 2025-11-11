@@ -118,7 +118,8 @@ describe('Auth Controller - Extended Tests', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.data.user.role).toBe('driver');
-      expect(res.body.data).toHaveProperty('token');
+        expect(res.body.data).toHaveProperty('accessToken');
+        expect(res.body.data).toHaveProperty('refreshToken');
     });
   });
 
@@ -146,7 +147,7 @@ describe('Auth Controller - Extended Tests', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data).toHaveProperty('token');
+        expect(res.body.data).toHaveProperty('accessToken');
       expect(res.body.data.user.email).toBe(testUser.email);
     });
 

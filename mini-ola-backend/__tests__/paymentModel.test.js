@@ -42,7 +42,10 @@ describe('Payment Model Tests', () => {
     });
 
     await Driver.create({
-      user: driver._id,
+      name: 'Test Driver',
+      email: 'driver@test.com',
+      phone: '0987654321',
+      password: 'password123',
       vehicleType: 'sedan',
       vehicleNumber: 'KA01AB1234',
       vehicleModel: 'Honda City',

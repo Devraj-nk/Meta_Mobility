@@ -19,10 +19,20 @@ const register = asyncHandler(async (req, res) => {
     name,
     email,
     phone,
-    password
+      password,
+      role,
+      vehicleType,
+      vehicleNumber,
+      vehicleModel,
+      vehicleColor,
+      licenseNumber,
+      licenseExpiry
   } = req.body;
 
-  // Check if user already exists
+    // Determine if this is a driver or rider registration
+    const isDriverRegistration = role === 'driver';
+
+    // Check if user already exists in User collection
   const existingUser = await User.findOne({
     $or: [{ email }, { phone }]
   });
@@ -33,17 +43,49 @@ const register = asyncHandler(async (req, res) => {
     );
   }
 
-  // Create user
-  const user = await User.create({
-    name,
-    email,
-    phone,
-    password, // Will be hashed by pre-save hook (CAB-SR-002)
-    role: 'rider'
-  });
+    // Check if driver already exists in Driver collection
+    if (isDriverRegistration) {
+      const existingDriver = await Driver.findOne({
+        $or: [{ email }, { phone }]
+      });
 
-  // Generate tokens (access + refresh)
-  const { accessToken, refreshToken, expiresIn } = await tokenService.issueTokens(user, {
+      if (existingDriver) {
+        return res.status(400).json(
+          formatError('Driver with this email or phone already exists', 400)
+        );
+      }
+    }
+
+    // Create account based on role
+    let account;
+    if (isDriverRegistration) {
+      // Create driver account
+      account = await Driver.create({
+        name,
+        email,
+        phone,
+        password, // Will be hashed by pre-save hook
+        role: 'driver',
+        vehicleType,
+        vehicleNumber,
+        vehicleModel,
+        vehicleColor,
+        licenseNumber,
+        licenseExpiry
+      });
+    } else {
+      // Create user (rider) account
+      account = await User.create({
+        name,
+        email,
+        phone,
+        password, // Will be hashed by pre-save hook (CAB-SR-002)
+        role: 'rider'
+      });
+    }
+
+    // Generate tokens (access + refresh) 
+    const { accessToken, refreshToken, expiresIn } = await tokenService.issueTokens(account, {
     ip: req.ip,
     userAgent: req.get('user-agent')
   });
@@ -51,12 +93,12 @@ const register = asyncHandler(async (req, res) => {
   res.status(201).json(
     formatSuccess('User registered successfully', {
       user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        walletBalance: user.walletBalance
+          id: account._id,
+          name: account.name,
+          email: account.email,
+          phone: account.phone,
+          role: account.role,
+          walletBalance: account.walletBalance || (isDriverRegistration ? 0 : 1000)
       },
       accessToken,
       refreshToken,
