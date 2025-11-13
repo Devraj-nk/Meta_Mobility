@@ -12,7 +12,6 @@ const userSchema = new mongoose.Schema({
   email: {
     type: String,
     required: [true, 'Email is required'],
-    unique: true,
     lowercase: true,
     trim: true,
     match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email']
@@ -20,7 +19,6 @@ const userSchema = new mongoose.Schema({
   phone: {
     type: String,
     required: [true, 'Phone number is required'],
-    unique: true,
     match: [/^[0-9]{10}$/, 'Please provide a valid 10-digit phone number']
   },
   password: {
@@ -31,7 +29,7 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['rider'],
+    enum: ['rider', 'driver', 'admin'],
     default: 'rider'
   },
   location: {
@@ -87,6 +85,9 @@ const userSchema = new mongoose.Schema({
 
 // Create geospatial index for location-based queries
 userSchema.index({ location: '2dsphere' });
+// Create unique indexes for email and phone
+userSchema.index({ email: 1 }, { unique: true });
+userSchema.index({ phone: 1 }, { unique: true });
 
 // Hash password before saving - CAB-SR-002
 userSchema.pre('save', async function(next) {

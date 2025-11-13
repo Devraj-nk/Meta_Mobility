@@ -22,11 +22,8 @@ describe('POST /api/auth/login (rider)', () => {
   const res = await request(app)
     .post('/api/auth/login')
     .send({ email: 'r1@example.com', password: 'password123' });
-
   expect(res.status).toBe(200);
   expect(res.body.success).toBe(true);
-
-  // updated to match new response shape (accessToken + refreshToken)
   expect(res.body.data).toBeDefined();
   expect(res.body.data.accessToken).toBeDefined();
   expect(res.body.data.refreshToken).toBeDefined();

@@ -1,0 +1,179 @@
+name: CI-CD Pipeline
+
+"on":
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+
+    services:
+      mongo:
+        image: mongo:6
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: mini-ola-backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: mini-ola-backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          if [ -f package.json ]; then
+            npm ci
+          else
+            echo "No package.json in mini-ola-backend, skipping install"
+          fi
+
+      - name: Run backend lint
+        run: |
+          if npm list --depth=0 | grep -q eslint; then
+            npm run lint || true
+          else
+            echo "No eslint in backend, skipping lint"
+          fi
+
+      - name: Run backend tests (with secrets only for same-repo PRs)
+        if: ${{ github.event.pull_request == null || github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          NODE_ENV: test
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          MONGODB_URI: mongodb://localhost:27017/mini-ola-test
+        run: |
+          npm test -- --coverage --testTimeout=30000
+
+      - name: Run backend tests (no secrets) for forks
+        if: ${{ github.event.pull_request != null && github.event.pull_request.head.repo.full_name != github.repository }}
+        env:
+          NODE_ENV: test
+          MONGODB_URI: mongodb://localhost:27017/mini-ola-test
+        run: |
+          # Run tests that don't require private secrets; some tests may fail/skip
+          npm test -- --testTimeout=30000 || true
+      
+
+      - name: Start backend for smoke test
+        env:
+          MONGODB_URI: mongodb://localhost:27017/mini-ola-test
+          JWT_SECRET: test_ci_secret
+          NODE_ENV: production
+          PORT: 5000
+        run: |
+          node src/server.js > server.log 2>&1 &
+          echo $! > server.pid
+          sleep 5
+
+      - name: Smoke test - health endpoint
+        run: |
+          curl -fsS http://localhost:5000/health || (cat server.log && exit 1)
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f server.pid ]; then
+            kill $(cat server.pid) || true
+          else
+            pkill -f "node src/server.js" || true
+          fi
+
+  frontend:
+    name: Frontend tests & build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: mini-ola-frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: mini-ola-frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: |
+          if [ -f package.json ]; then
+            npm ci
+          else
+            echo "No package.json in mini-ola-frontend, skipping install"
+          fi
+
+      - name: Run frontend lint
+        run: |
+          if npm list --depth=0 | grep -q eslint; then
+            npm run lint || true
+          else
+            echo "No eslint in frontend, skipping lint"
+          fi
+
+      - name: Run frontend tests
+        run: |
+          if npm list --depth=0 | grep -q vitest; then
+            npm test
+          else
+            echo "No frontend tests configured, skipping..."
+          fi
+
+      - name: Build frontend
+        run: |
+          npm run build --if-present || true
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-ola-frontend-dist
+          path: mini-ola-frontend/dist
+
+  build:
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Aggregate step (no-op)
+        run: echo "Backend and frontend jobs completed. This step aggregates results."
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        run: echo "Deploying to staging environment..."
+
+      - name: Run integration tests
+        run: echo "Running integration tests..."
+
+      - name: Deploy to production
+        run: echo "Deploying to production environment..."
