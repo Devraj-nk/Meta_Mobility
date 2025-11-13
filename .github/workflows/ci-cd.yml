@@ -237,9 +237,17 @@ jobs:
         uses: ajinabraham/njsscan-action@v9
         with:
           args: ". --sarif --output results.sarif || true"
+      - name: Upload njsscan SARIF as artifact (fallback)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: njsscan-sarif
+          path: results.sarif
+          if-no-files-found: ignore
       - name: Upload SARIF to code scanning
         if: ${{ github.event.pull_request == null || github.event.pull_request.head.repo.full_name == github.repository }}
         uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
         with:
           sarif_file: results.sarif
 
