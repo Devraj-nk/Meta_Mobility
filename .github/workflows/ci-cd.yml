@@ -6,6 +6,9 @@ name: CI-CD Pipeline
   pull_request:
     branches: [main, develop]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -206,6 +209,10 @@ jobs:
     name: Security scan (SCA + SAST)
     needs: [lint]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - name: Node audit (backend)
@@ -231,6 +238,7 @@ jobs:
         with:
           args: ". --sarif --output results.sarif || true"
       - name: Upload SARIF to code scanning
+        if: ${{ github.event.pull_request == null || github.event.pull_request.head.repo.full_name == github.repository }}
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
