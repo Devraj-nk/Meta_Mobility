@@ -6,11 +6,53 @@ name: CI-CD Pipeline
   pull_request:
     branches: [main, develop]
 
-jobs:
-  backend:
-    name: Backend tests
-    runs-on: ubuntu-latest
+permissions:
+  contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 1) LINT STAGE -----------------------------------------------------------
+  lint:
+    name: Lint (backend & frontend)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: backend
+            workdir: mini-ola-backend
+            lockfile: mini-ola-backend/package-lock.json
+          - name: frontend
+            workdir: mini-ola-frontend
+            lockfile: mini-ola-frontend/package-lock.json
+    defaults:
+      run:
+        working-directory: ${{ matrix.workdir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: ${{ matrix.lockfile }}
+      - name: Install deps
+        run: |
+          if [ -f package.json ]; then npm ci; else echo "No package.json"; fi
+      - name: Run eslint (if available)
+        run: |
+          if npm ls --depth=0 eslint >/dev/null 2>&1; then
+            npm run lint || true
+          else
+            echo "eslint not installed in ${{ matrix.name }}, skipping"
+          fi
+
+  # 2) TEST STAGE -----------------------------------------------------------
+  test-backend:
+    name: Test backend
+    needs: lint
+    runs-on: ubuntu-latest
     services:
       mongo:
         image: mongo:6
@@ -21,58 +63,41 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
     defaults:
       run:
         working-directory: mini-ola-backend
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
           cache-dependency-path: mini-ola-backend/package-lock.json
-
-      - name: Install backend dependencies
-        run: |
-          if [ -f package.json ]; then
-            npm ci
-          else
-            echo "No package.json in mini-ola-backend, skipping install"
-          fi
-
-      - name: Run backend lint
-        run: |
-          if npm list --depth=0 | grep -q eslint; then
-            npm run lint || true
-          else
-            echo "No eslint in backend, skipping lint"
-          fi
-
-      - name: Run backend tests (with secrets only for same-repo PRs)
+      - name: Install backend deps
+        run: npm ci
+      - name: Run backend tests with coverage (same-repo PRs)
         if: ${{ github.event.pull_request == null || github.event.pull_request.head.repo.full_name == github.repository }}
         env:
           NODE_ENV: test
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           MONGODB_URI: mongodb://localhost:27017/mini-ola-test
-        run: |
-          npm test -- --coverage --testTimeout=30000
-
-      - name: Run backend tests (no secrets) for forks
+        run: npm test -- --coverage --runInBand --testTimeout=30000
+      - name: Run backend tests (fork PRs - no secrets)
         if: ${{ github.event.pull_request != null && github.event.pull_request.head.repo.full_name != github.repository }}
         env:
           NODE_ENV: test
           MONGODB_URI: mongodb://localhost:27017/mini-ola-test
-        run: |
-          # Run tests that don't require private secrets; some tests may fail/skip
-          npm test -- --testTimeout=30000 || true
-      
-
-      - name: Start backend for smoke test
+        run: npm test -- --runInBand --testTimeout=30000 || true
+      - name: Upload backend coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: |
+            mini-ola-backend/coverage
+            mini-ola-backend/junit.xml
+          if-no-files-found: ignore
+      - name: Backend smoke (start server)
         env:
           MONGODB_URI: mongodb://localhost:27017/mini-ola-test
           JWT_SECRET: test_ci_secret
@@ -82,11 +107,9 @@ jobs:
           node src/server.js > server.log 2>&1 &
           echo $! > server.pid
           sleep 5
-
-      - name: Smoke test - health endpoint
+      - name: Backend smoke test - /health
         run: |
           curl -fsS http://localhost:5000/health || (cat server.log && exit 1)
-
       - name: Stop backend
         if: always()
         run: |
@@ -96,84 +119,185 @@ jobs:
             pkill -f "node src/server.js" || true
           fi
 
-  frontend:
-    name: Frontend tests & build
+  test-frontend:
+    name: Test frontend
+    needs: lint
     runs-on: ubuntu-latest
-
     defaults:
       run:
         working-directory: mini-ola-frontend
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
           cache-dependency-path: mini-ola-frontend/package-lock.json
-
-      - name: Install frontend dependencies
+      - name: Install frontend deps
+        run: npm ci
+      - name: Run vitest with coverage (if configured)
         run: |
-          if [ -f package.json ]; then
-            npm ci
+          if npm ls --depth=0 vitest >/dev/null 2>&1; then
+            npm test || npm run test
           else
-            echo "No package.json in mini-ola-frontend, skipping install"
+            echo "vitest not installed, skipping tests"
           fi
+      - name: Upload frontend coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: |
+            mini-ola-frontend/coverage
+          if-no-files-found: ignore
 
-      - name: Run frontend lint
+  # 3) COVERAGE STAGE -------------------------------------------------------
+  coverage:
+    name: Coverage summary
+    needs: [test-backend, test-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: coverage-artifacts
+      - name: List coverage files
         run: |
-          if npm list --depth=0 | grep -q eslint; then
-            npm run lint || true
-          else
-            echo "No eslint in frontend, skipping lint"
-          fi
+          echo "Downloaded coverage artifacts:"
+          ls -R coverage-artifacts || true
+      - name: Upload combined coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-coverage
+          path: coverage-artifacts
+          retention-days: 7
+      - name: Upload to Codecov (optional)
+        uses: codecov/codecov-action@v4
+        continue-on-error: true
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: true
+          directory: coverage-artifacts
 
-      - name: Run frontend tests
-        run: |
-          if npm list --depth=0 | grep -q vitest; then
-            npm test
-          else
-            echo "No frontend tests configured, skipping..."
-          fi
-
-      - name: Build frontend
-        run: |
-          npm run build --if-present || true
-
-      - name: Upload frontend artifact
+  # 4) BUILD STAGE ----------------------------------------------------------
+  build:
+    name: Build frontend
+    needs: coverage
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mini-ola-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: mini-ola-frontend/package-lock.json
+      - name: Install deps
+        run: npm ci
+      - name: Build
+        run: npm run build --if-present
+      - name: Upload frontend dist
         uses: actions/upload-artifact@v4
         with:
           name: mini-ola-frontend-dist
           path: mini-ola-frontend/dist
 
-  build:
-    needs: [backend, frontend]
+  # 5) SECURITY STAGE -------------------------------------------------------
+  security:
+    name: Security scan (SCA + SAST)
+    needs: [lint]
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Node audit (backend)
+        working-directory: mini-ola-backend
+        run: npm ci && npm audit --audit-level=moderate --json > ../backend-npm-audit.json || true
+      - name: Node audit (frontend)
+        working-directory: mini-ola-frontend
+        run: npm ci && npm audit --audit-level=moderate --json > ../frontend-npm-audit.json || true
+      - name: Upload audit reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-reports
+          path: |
+            backend-npm-audit.json
+            frontend-npm-audit.json
+          if-no-files-found: ignore
+      - name: Set up Python (required by njsscan action)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: njsscan (SAST) with SARIF upload
+        uses: ajinabraham/njsscan-action@v9
+        with:
+          args: ". --sarif --output results.sarif || true"
+      - name: Upload njsscan SARIF as artifact (fallback)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: njsscan-sarif
+          path: results.sarif
+          if-no-files-found: ignore
+      - name: Upload SARIF to code scanning
+        if: ${{ github.event.pull_request == null || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: results.sarif
 
-      - name: Aggregate step (no-op)
-        run: echo "Backend and frontend jobs completed. This step aggregates results."
+  # 6) PACKAGE/ARTIFACT STAGE ----------------------------------------------
+  package:
+    name: Deployment artifact
+    needs: [build, security]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: mini-ola-frontend-dist
+          path: mini-ola-frontend/dist
+      - name: Prepare backend (production-only files)
+        run: |
+          cp -r mini-ola-backend backend-package
+          cd backend-package
+          # Remove dev-only folders if any cached
+          rm -rf node_modules || true
+          npm ci --omit=dev
+      - name: Create deployment package
+        run: |
+          mkdir -p release
+          cp -r backend-package release/mini-ola-backend
+          cp -r mini-ola-frontend/dist release/mini-ola-frontend-dist
+          cd release && zip -r ../deployment-package.zip . && cd -
+      - name: Upload deployment artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-package
+          path: deployment-package.zip
 
+  # 7) DEPLOY (example placeholder) ----------------------------------------
   deploy:
-    needs: build
-    runs-on: ubuntu-latest
+    name: Deploy
+    needs: package
     if: github.ref == 'refs/heads/main'
-
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Deploy to staging
-        run: echo "Deploying to staging environment..."
-
-      - name: Run integration tests
-        run: echo "Running integration tests..."
-
-      - name: Deploy to production
-        run: echo "Deploying to production environment..."
+      - name: Download deployment artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-package
+          path: .
+      - name: Show artifact contents
+        run: unzip -l deployment-package.zip
+      - name: Deploy (placeholder)
+        run: echo "Deploying deployment-package.zip to target environment..."
