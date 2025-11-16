@@ -1,0 +1,48 @@
+{
+  "name": "mini-ola-backend",
+  "version": "1.0.0",
+  "description": "Backend for Mini Ola Cab Aggregator System - Meta-Mobility",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "migrate:split-users": "node scripts/migrate-users-split.js",
+    "migrate:rename-users": "node scripts/rename-users-to-riders.js",
+    "test": "cross-env NODE_ENV=test jest --runInBand",
+    "db:drop-users": "node scripts/drop-users.js",
+    "db:drop-riders": "node scripts/drop-riders.js"
+  },
+  "keywords": [
+    "cab",
+    "aggregator",
+    "ola",
+    "uber",
+    "ride-sharing"
+  ],
+  "authors": [
+    "Devraj Ishwar Naik",
+    "Chinthan K",
+    "Christananda B",
+    "Chethan S"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^8.0.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "dotenv": "^16.3.1",
+    "cors": "^2.8.5",
+    "express-validator": "^7.0.1",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "socket.io": "^4.6.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "cross-env": "^7.0.3",
+    "jest": "^29.7.0",
+    "supertest": "^7.1.1",
+    "mongodb-memory-server": "^10.1.4"
+  }
+}
