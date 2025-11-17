@@ -36,7 +36,10 @@ This repository contains the source code and documentation for the A cab aggrega
 ## 🚀 Getting Started
 
 ### Prerequisites
-- [List your prerequisites here]
+- Node.js (v18 or higher)
+- MongoDB Atlas account or local MongoDB installation
+- npm or yarn package manager
+- Git
 
 ### Installation
 1. Clone the repository
@@ -47,24 +50,70 @@ This repository contains the source code and documentation for the A cab aggrega
 
 2. Install dependencies
    ```bash
-   # Add your installation commands here
+   # Install backend dependencies
+   cd mini-ola-backend
+   npm install
+   
+   # Install frontend dependencies
+   cd ../mini-ola-frontend
+   npm install
    ```
 
-3. Run the application
+3. Configure environment variables
    ```bash
-   # Add your run commands here
+   # Create .env file in mini-ola-backend directory
+   cd mini-ola-backend
+   
+   # Create a new .env file and add the following variables:
+   MONGODB_URI=your-mongodb-connection-string
+   JWT_SECRET=your-secret-key-min-32-chars
+   JWT_EXPIRES_IN=7d
+   PORT=5000
+   NODE_ENV=development
+   ```
+
+4. Run the application
+   ```bash
+   # Run backend (from mini-ola-backend directory)
+   npm run dev
+   
+   # Run frontend (from mini-ola-frontend directory)
+   npm run dev
    ```
 
 ## 📁 Project Structure
 
 ```
 PESU_EC_CSE_C_P14_A_cab_aggregator_system_Meta-Mobility/
-├── src/                 # Source code
-├── docs/               # Documentation
-├── tests/              # Test files
-├── .github/            # GitHub workflows and templates
-├── README.md          # This file
-└── ...
+├── mini-ola-backend/    # Backend Node.js/Express API
+│   ├── src/
+│   │   ├── config/      # Database and app configuration
+│   │   ├── controllers/ # Business logic (auth, rides, drivers, payments)
+│   │   ├── middleware/  # Auth, validation, error handling
+│   │   ├── models/      # Mongoose schemas (User, Driver, Ride, Payment)
+│   │   ├── routes/      # API route definitions
+│   │   ├── services/    # Business services
+│   │   └── utils/       # Helper functions
+│   ├── __tests__/       # Jest test suites
+│   ├── scripts/         # Database migration scripts
+│   ├── coverage/        # Test coverage reports
+│   ├── .env             # Environment variables (create this - not in repo)
+│   ├── jest.config.js   # Jest configuration
+│   └── package.json     # Backend dependencies
+├── mini-ola-frontend/   # Frontend React + Vite application
+│   ├── src/
+│   │   ├── api/         # API integration layer
+│   │   ├── components/  # React components
+│   │   ├── context/     # React context providers
+│   │   ├── pages/       # Page components
+│   │   └── App.jsx      # Main app component
+│   ├── coverage/        # Test coverage reports
+│   ├── vite.config.js   # Vite configuration
+│   ├── tailwind.config.js # Tailwind CSS configuration
+│   └── package.json     # Frontend dependencies
+├── README.md            # This file
+├── srs.txt              # Software Requirements Specification
+└── test-suite-report.csv # Test coverage report
 ```
 
 ## 🛠️ Development Guidelines
@@ -99,12 +148,31 @@ Follow conventional commit format:
 
 ## 🧪 Testing
 
+### Backend Tests
 ```bash
-# Run tests
+cd mini-ola-backend
+
+# Run all tests
 npm test
 
 # Run tests with coverage
-npm run test:coverage
+npm test -- --coverage
+
+# Run specific test file
+npm test -- auth.test.js
+
+# Run tests in watch mode
+npm test -- --watch
+```
+
+**Test Coverage:** 93.51% overall (14 test suites, 157 tests passing)
+
+### Frontend Tests
+```bash
+cd mini-ola-frontend
+
+# Run tests with coverage
+npm test
 ```
 
 ## 📄 License

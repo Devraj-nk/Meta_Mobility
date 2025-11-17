@@ -220,30 +220,7 @@ CAB-NF-004 (Cross-browser)	Usability	TC-UX-01: Web app functions correctly in Ch
 7.1 UML Use-Case diagram
 
 1)	UML Use Case 1 - Rider’s Perspective:
-
- 
-
 2)	UML Use Case 2 - driver’s Perspective:
-
- 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 8. Requirements Traceability Matrix (RTM)
 
