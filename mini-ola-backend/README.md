@@ -86,6 +86,9 @@ mini-ola-backend/
    NODE_ENV=development
    ```
 
+   ⚠️  If your MongoDB Atlas password contains special characters (like `@`, `:`, `/`, `#`, `%`), you must URL-encode them in `MONGODB_URI`.
+   Example: if the password is `Devraj@999`, use `Devraj%40999` in the URI.
+
 4. **Start the server**
    ```bash
    # Development mode (with auto-reload using nodemon)
